@@ -10,6 +10,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt psycopg2-binary
 
 COPY . .
+RUN chmod +x deploy.sh
 RUN sudo ./deploy.sh
 RUN python manage.py collectstatic --noinput
 RUN chmod +x entrypoint.sh
