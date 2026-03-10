@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# ── Fix volume permissions (mounted as root) ─────────────────────────────────
+chown -R appuser:appgroup /app/mediafiles 2>/dev/null || true
+
 # ── SECRET_KEY: use env var, or generate once and persist to a volume ────────
 mkdir -p /app/mediafiles
 SECRET_KEY_FILE="/app/mediafiles/.secret_key"
@@ -75,9 +78,9 @@ finally:
     sleep 1
 done
 
-# ── Django setup ─────────────────────────────────────────────────────────────
+# ── Django setup (run as appuser) ─────────────────────────────────────────────
 echo "Running migrations..."
-python manage.py migrate --noinput
+su appuser -s /bin/sh -c "python manage.py migrate --noinput"
 
 echo "Starting Daphne on 0.0.0.0:8000..."
-exec daphne -b 0.0.0.0 -p 8000 config.asgi:application
+exec su appuser -s /bin/sh -c "exec daphne -b 0.0.0.0 -p 8000 config.asgi:application"

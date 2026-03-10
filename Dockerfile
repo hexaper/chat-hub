@@ -23,10 +23,9 @@ RUN SECRET_KEY=build-placeholder \
     DB_NAME=x DB_USER=x DB_PASSWORD=x \
     python manage.py collectstatic --noinput
 
-# Run as non-root
+# Create non-root user (entrypoint handles the switch)
 RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser \
     && chown -R appuser:appgroup /app
-USER appuser
 
 EXPOSE 8000
 
