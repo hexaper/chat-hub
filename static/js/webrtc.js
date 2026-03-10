@@ -1,0 +1,361 @@
+const peers = {};           // channel_name -> RTCPeerConnection
+const userChannels = {};    // username -> channel_name
+const vadAnalysers = {};    // id -> { analyser, dataArray, audioCtx }
+const ICE_SERVERS = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+let localStream = null;
+let socket = null;
+let myChannel = null;
+let cameraEnabled = false;  // camera starts off for remote peers
+let blackVideoTrack = null;
+let blackCanvas = null;     // held to prevent GC killing the canvas stream
+const remoteStreams = {};   // channel -> MediaStream we build ourselves
+
+// ── Device enumeration ──────────────────────────────────────────────────────
+async function enumerateDevices() {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const cameraSelect = document.getElementById('cameraSelect');
+    const micSelect = document.getElementById('micSelect');
+
+    devices.forEach(d => {
+        const opt = new Option(d.label || `${d.kind} (${d.deviceId.slice(0, 8)})`, d.deviceId);
+        if (d.kind === 'videoinput') cameraSelect.appendChild(opt);
+        if (d.kind === 'audioinput') micSelect.appendChild(opt);
+    });
+
+    for (const d of devices) {
+        if (d.kind !== 'videoinput' && d.kind !== 'audioinput') continue;
+        await fetch('/devices/register/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+            body: JSON.stringify({
+                deviceId: d.deviceId,
+                label: d.label,
+                deviceType: d.kind === 'videoinput' ? 'camera' : 'microphone',
+            }),
+        });
+    }
+}
+
+// ── Black video track (created once, reused) ─────────────────────────────────
+function getBlackVideoTrack() {
+    if (!blackVideoTrack) {
+        blackCanvas = document.createElement('canvas');
+        blackCanvas.width = 640;
+        blackCanvas.height = 480;
+        blackCanvas.getContext('2d').fillRect(0, 0, 640, 480);
+        blackVideoTrack = blackCanvas.captureStream(1).getVideoTracks()[0];
+    }
+    return blackVideoTrack;
+}
+
+// ── Start call ──────────────────────────────────────────────────────────────
+async function startCall() {
+    const cameraId = document.getElementById('cameraSelect').value;
+    const micId = document.getElementById('micSelect').value;
+
+    localStream = await navigator.mediaDevices.getUserMedia({
+        video: cameraId ? { deviceId: { exact: cameraId } } : true,
+        audio: micId ? { deviceId: { exact: micId } } : true,
+    });
+
+    // Mic starts muted; camera preview stays live locally but peers get black track
+    localStream.getAudioTracks().forEach(t => { t.enabled = false; });
+    cameraEnabled = false;
+
+    setMicBtn(false);
+    setCamBtn(false);
+
+    document.getElementById('localVideo').srcObject = localStream;
+    updateMediaIcons('local', false, false);
+    startVAD('local', localStream);
+    connectWebSocket(cameraId, micId);
+}
+
+document.getElementById('startBtn').addEventListener('click', startCall);
+
+// ── Mic / camera toggle ───────────────────────────────────────────────────────
+function setMicBtn(enabled) {
+    const btn = document.getElementById('toggleMicBtn');
+    btn.textContent = enabled ? 'Mute Mic' : 'Unmute Mic';
+    btn.classList.toggle('btn-outline-secondary', enabled);
+    btn.classList.toggle('btn-danger', !enabled);
+}
+
+function setCamBtn(enabled) {
+    const btn = document.getElementById('toggleCamBtn');
+    btn.textContent = enabled ? 'Disable Camera' : 'Enable Camera';
+    btn.classList.toggle('btn-outline-secondary', enabled);
+    btn.classList.toggle('btn-danger', !enabled);
+}
+
+document.getElementById('toggleMicBtn').addEventListener('click', () => {
+    if (!localStream) return;
+    const audioTrack = localStream.getAudioTracks()[0];
+    if (!audioTrack) return;
+    audioTrack.enabled = !audioTrack.enabled;
+    setMicBtn(audioTrack.enabled);
+    updateMediaIcons('local', audioTrack.enabled, cameraEnabled);
+    broadcastMediaState();
+});
+
+document.getElementById('toggleCamBtn').addEventListener('click', async () => {
+    if (!localStream) return;
+    cameraEnabled = !cameraEnabled;
+    const videoTrack = localStream.getVideoTracks()[0];
+    const trackToSend = cameraEnabled ? videoTrack : getBlackVideoTrack();
+
+    for (const pc of Object.values(peers)) {
+        const sender = pc.getSenders().find(s => s.track?.kind === 'video');
+        if (sender) await sender.replaceTrack(trackToSend);
+    }
+
+    setCamBtn(cameraEnabled);
+    updateMediaIcons('local', localStream.getAudioTracks()[0]?.enabled ?? false, cameraEnabled);
+    broadcastMediaState();
+});
+
+// ── Media state icons ────────────────────────────────────────────────────────
+function updateMediaIcons(id, micOn, camOn) {
+    const container = document.getElementById(`media-icons-${id}`);
+    if (!container) return;
+    const mic = container.querySelector('.mic-icon i');
+    const cam = container.querySelector('.cam-icon i');
+    if (mic) mic.className = micOn ? 'bi bi-mic-fill text-success' : 'bi bi-mic-mute-fill text-danger';
+    if (cam) cam.className = camOn ? 'bi bi-camera-video-fill text-success' : 'bi bi-camera-video-off-fill text-danger';
+    updateCamPlaceholder(id, camOn);
+}
+
+function updateCamPlaceholder(id, camOn) {
+    const el = document.getElementById(`cam-placeholder-${id}`);
+    if (el) el.style.display = camOn ? 'none' : 'flex';
+}
+
+function broadcastMediaState() {
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    const micOn = localStream?.getAudioTracks()[0]?.enabled ?? false;
+    socket.send(JSON.stringify({ type: 'media_state', mic: micOn, cam: cameraEnabled }));
+}
+
+// ── Host controls ────────────────────────────────────────────────────────────
+function hostKick(username) {
+    const channel = userChannels[username];
+    if (!channel || !socket) return;
+    socket.send(JSON.stringify({ type: 'kick', target_channel: channel, username }));
+}
+
+function hostMute(username) {
+    const channel = userChannels[username];
+    if (!channel || !socket) return;
+    socket.send(JSON.stringify({ type: 'mute_user', target_channel: channel }));
+}
+
+// ── Voice activity detection ─────────────────────────────────────────────────
+function startVAD(id, stream) {
+    try {
+        const audioCtx = new AudioContext();
+        const source = audioCtx.createMediaStreamSource(stream);
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 512;
+        analyser.smoothingTimeConstant = 0.8;
+        source.connect(analyser);
+        vadAnalysers[id] = { analyser, dataArray: new Uint8Array(analyser.frequencyBinCount), audioCtx };
+    } catch (_) {}
+}
+
+function stopVAD(id) {
+    if (vadAnalysers[id]) {
+        vadAnalysers[id].audioCtx.close();
+        delete vadAnalysers[id];
+    }
+}
+
+function vadLoop() {
+    for (const [id, { analyser, dataArray }] of Object.entries(vadAnalysers)) {
+        analyser.getByteFrequencyData(dataArray);
+        const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+        const speaking = avg > 8;
+        const videoEl = id === 'local'
+            ? document.getElementById('localVideo')
+            : document.getElementById(`video-${id}`)?.querySelector('video');
+        if (videoEl) videoEl.classList.toggle('speaking', speaking);
+    }
+    requestAnimationFrame(vadLoop);
+}
+
+vadLoop();
+
+// ── WebSocket / signaling ───────────────────────────────────────────────────
+function connectWebSocket(cameraId, micId) {
+    socket = new WebSocket(WS_URL);
+
+    socket.onopen = () => {
+        socket.send(JSON.stringify({ type: 'device_update', cameraId, microphoneId: micId }));
+        broadcastMediaState();
+    };
+
+    socket.onmessage = async ({ data }) => {
+        const msg = JSON.parse(data);
+
+        if (msg.type === 'my_channel') {
+            myChannel = msg.channel;
+
+        } else if (msg.type === 'user_joined') {
+            userChannels[msg.username] = msg.channel;
+            addParticipantToList(msg.username);
+            if (msg.channel !== myChannel) await createOffer(msg.channel, msg.username);
+
+        } else if (msg.type === 'user_left') {
+            delete userChannels[msg.username];
+            removeParticipantFromList(msg.username);
+            removePeer(msg.channel);
+
+        } else if (msg.type === 'offer') {
+            await handleOffer(msg.payload, msg.sender, msg.username);
+        } else if (msg.type === 'answer') {
+            await peers[msg.sender]?.setRemoteDescription(msg.payload);
+        } else if (msg.type === 'ice-candidate') {
+            await peers[msg.sender]?.addIceCandidate(msg.payload);
+
+        } else if (msg.type === 'kicked') {
+            socket.close();
+            alert('You have been kicked from the room.');
+            window.location.href = '/rooms/';
+
+        } else if (msg.type === 'force_mute') {
+            if (localStream) {
+                const audioTrack = localStream.getAudioTracks()[0];
+                if (audioTrack) {
+                    audioTrack.enabled = false;
+                    setMicBtn(false);
+                    updateMediaIcons('local', false, cameraEnabled);
+                    broadcastMediaState();
+                }
+            }
+
+        } else if (msg.type === 'media_state' && msg.channel !== myChannel) {
+            updateMediaIcons(msg.channel, msg.mic, msg.cam);
+
+        } else if (msg.type === 'room_closed') {
+            socket.close();
+            alert('The host has closed this room.');
+            window.location.href = '/rooms/';
+        }
+    };
+}
+
+// ── WebRTC helpers ──────────────────────────────────────────────────────────
+function createPeerConnection(targetChannel, username) {
+    const pc = new RTCPeerConnection(ICE_SERVERS);
+    peers[targetChannel] = pc;
+
+    // Add audio and video as independent transceivers with no shared stream.
+    // This fully decouples the audio pipeline from camera state — no stream-grouping
+    // ambiguity, no dependency on a video track being "live" for audio to flow.
+    const audioTrack = localStream.getAudioTracks()[0];
+    if (audioTrack) pc.addTransceiver(audioTrack, { direction: 'sendrecv' });
+
+    const videoTrack = cameraEnabled ? localStream.getVideoTracks()[0] : getBlackVideoTrack();
+    if (videoTrack) pc.addTransceiver(videoTrack, { direction: 'sendrecv' });
+
+    pc.onicecandidate = ({ candidate }) => {
+        if (candidate) {
+            socket.send(JSON.stringify({ type: 'ice-candidate', target: targetChannel, payload: candidate }));
+        }
+    };
+
+    remoteStreams[targetChannel] = new MediaStream();
+    pc.ontrack = ({ track }) => {
+        remoteStreams[targetChannel].addTrack(track);
+        if (track.kind === 'video') {
+            addRemoteVideo(targetChannel, username, remoteStreams[targetChannel]);
+        } else if (track.kind === 'audio') {
+            // Dedicated <audio> element created at the moment the audio track arrives.
+            // Relying on the <video> element to pick up audio tracks added after srcObject
+            // is set is unreliable across browsers — a separate element is guaranteed.
+            const audioStream = new MediaStream([track]);
+            const audioEl = document.createElement('audio');
+            audioEl.id = `audio-${targetChannel}`;
+            audioEl.srcObject = audioStream;
+            audioEl.autoplay = true;
+            document.body.appendChild(audioEl);
+            startVAD(targetChannel, audioStream);
+        }
+    };
+    return pc;
+}
+
+async function createOffer(targetChannel, username) {
+    const pc = createPeerConnection(targetChannel, username);
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    socket.send(JSON.stringify({ type: 'offer', target: targetChannel, payload: offer }));
+}
+
+async function handleOffer(offer, senderChannel, username) {
+    const pc = createPeerConnection(senderChannel, username);
+    await pc.setRemoteDescription(offer);
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+    socket.send(JSON.stringify({ type: 'answer', target: senderChannel, payload: answer }));
+}
+
+function addRemoteVideo(channel, username, stream) {
+    if (document.getElementById(`video-${channel}`)) return;
+    const col = document.createElement('div');
+    col.className = 'col-md-6';
+    col.id = `video-${channel}`;
+    col.innerHTML = `
+        <div class="video-wrapper">
+            <video autoplay muted playsinline class="w-100 rounded bg-dark"></video>
+            <div class="cam-placeholder" id="cam-placeholder-${channel}">
+                <i class="bi bi-camera-video-off"></i>
+            </div>
+            <div class="media-icons" id="media-icons-${channel}">
+                <span class="media-icon mic-icon"><i class="bi bi-mic-mute-fill text-danger"></i></span>
+                <span class="media-icon cam-icon"><i class="bi bi-camera-video-off-fill text-danger"></i></span>
+            </div>
+        </div>
+        <p class="text-center mt-1"><strong>${username}</strong></p>`;
+    col.querySelector('video').srcObject = stream;
+    document.getElementById('videoGrid').appendChild(col);
+}
+
+function removePeer(channel) {
+    stopVAD(channel);
+    delete remoteStreams[channel];
+    const pc = peers[channel];
+    if (pc) { pc.close(); delete peers[channel]; }
+    document.getElementById(`video-${channel}`)?.remove();
+    document.getElementById(`audio-${channel}`)?.remove();
+}
+
+// ── Participant list helpers ──────────────────────────────────────────────────
+function addParticipantToList(username) {
+    if (document.getElementById(`participant-${username}`)) return;
+    const li = document.createElement('li');
+    li.className = 'list-group-item d-flex justify-content-between align-items-center';
+    li.id = `participant-${username}`;
+    li.innerHTML = username + (IS_HOST && username !== USERNAME
+        ? ` <div>
+                <button class="btn btn-sm btn-outline-warning me-1" onclick="hostMute('${username}')">Mute</button>
+                <button class="btn btn-sm btn-outline-danger" onclick="hostKick('${username}')">Kick</button>
+            </div>`
+        : '');
+    document.getElementById('participantList').appendChild(li);
+}
+
+function removeParticipantFromList(username) {
+    document.getElementById(`participant-${username}`)?.remove();
+}
+
+// ── Cookie helper ─────────────────────────────────────────────────────────────
+function getCookie(name) {
+    return document.cookie.split(';').map(c => c.trim())
+        .find(c => c.startsWith(name + '='))?.split('=')[1] ?? '';
+}
+
+// Enumerate devices then auto-start the call
+navigator.mediaDevices.getUserMedia({ video: true, audio: true })
+    .then(() => enumerateDevices())
+    .catch(() => enumerateDevices())
+    .finally(() => startCall());
