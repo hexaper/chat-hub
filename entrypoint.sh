@@ -16,7 +16,7 @@ if [ ! -f "$PG_DATA/PG_VERSION" ]; then
     su postgres -c "$PG_BIN/initdb -D $PG_DATA"
 fi
 
-su postgres -c "$PG_BIN/pg_ctl -D $PG_DATA -l /var/log/postgresql/postgresql.log start -w"
+su postgres -c "$PG_BIN/pg_ctl -D $PG_DATA -l /var/log/postgresql.log start -w"
 
 # Create database and user if they don't exist
 su postgres -c "$PG_BIN/psql -tc \"SELECT 1 FROM pg_roles WHERE rolname='${DB_USER:-videocall}'\" | grep -q 1" || \
