@@ -52,7 +52,7 @@ apt-get install -y -qq \
     redis-server \
     nginx \
     certbot python3-certbot-nginx \
-    git curl build-essential \
+    git curl rsync build-essential \
     libjpeg-dev zlib1g-dev libffi-dev \
     > /dev/null
 
