@@ -12,6 +12,9 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    environment:
+      DB_HOST: db
+      REDIS_HOST: redis
     links:
       - db
     volumes:
