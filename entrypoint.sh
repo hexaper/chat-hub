@@ -1,10 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# ── Validate required environment variables ──────────────────────────────────
+# ── SECRET_KEY: use env var, or generate once and persist to a volume ────────
+SECRET_KEY_FILE="/app/mediafiles/.secret_key"
 if [ -z "${SECRET_KEY:-}" ]; then
-    echo "FATAL: SECRET_KEY environment variable is not set. Refusing to start." >&2
-    exit 1
+    if [ -f "$SECRET_KEY_FILE" ]; then
+        export SECRET_KEY="$(cat "$SECRET_KEY_FILE")"
+        echo "Loaded SECRET_KEY from $SECRET_KEY_FILE"
+    else
+        export SECRET_KEY="$(python -c 'import secrets; print(secrets.token_hex(50))')"
+        echo "$SECRET_KEY" > "$SECRET_KEY_FILE"
+        echo "Generated new SECRET_KEY and saved to $SECRET_KEY_FILE"
+    fi
 fi
 
 export DJANGO_SETTINGS_MODULE="${DJANGO_SETTINGS_MODULE:-config.settings.production}"
@@ -14,8 +21,8 @@ export DB_NAME="${DB_NAME:-videocall}"
 export DB_USER="${DB_USER:-videocall}"
 export DB_PASSWORD="${DB_PASSWORD:-videocall}"
 export REDIS_HOST="${REDIS_HOST:-redis}"
-export ALLOWED_HOSTS="${ALLOWED_HOSTS:-localhost,127.0.0.1}"
-export SECURE_SSL_REDIRECT="${SECURE_SSL_REDIRECT:-true}"
+export ALLOWED_HOSTS="${ALLOWED_HOSTS:-*}"
+export SECURE_SSL_REDIRECT="${SECURE_SSL_REDIRECT:-false}"
 
 # ── Wait for PostgreSQL ──────────────────────────────────────────────────────
 echo "Waiting for PostgreSQL at ${DB_HOST}:${DB_PORT}..."
