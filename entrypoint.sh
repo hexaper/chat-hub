@@ -27,7 +27,7 @@ export SECURE_SSL_REDIRECT="${SECURE_SSL_REDIRECT:-false}"
 
 # ── Wait for PostgreSQL ──────────────────────────────────────────────────────
 echo "Waiting for PostgreSQL at ${DB_HOST}:${DB_PORT}..."
-for i in $(seq 1 30); do
+for i in $(seq 1 60); do
     if python -c "
 import socket, sys
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -43,8 +43,8 @@ finally:
         echo "  PostgreSQL ready"
         break
     fi
-    if [ "$i" -eq 30 ]; then
-        echo "FATAL: PostgreSQL not reachable at ${DB_HOST}:${DB_PORT} after 30s" >&2
+    if [ "$i" -eq 60 ]; then
+        echo "FATAL: PostgreSQL not reachable at ${DB_HOST}:${DB_PORT} after 60s" >&2
         exit 1
     fi
     sleep 1
@@ -52,7 +52,7 @@ done
 
 # ── Wait for Redis ───────────────────────────────────────────────────────────
 echo "Waiting for Redis at ${REDIS_HOST}:6379..."
-for i in $(seq 1 30); do
+for i in $(seq 1 60); do
     if python -c "
 import socket, sys
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -68,8 +68,8 @@ finally:
         echo "  Redis ready"
         break
     fi
-    if [ "$i" -eq 30 ]; then
-        echo "FATAL: Redis not reachable at ${REDIS_HOST}:6379 after 30s" >&2
+    if [ "$i" -eq 60 ]; then
+        echo "FATAL: Redis not reachable at ${REDIS_HOST}:6379 after 60s" >&2
         exit 1
     fi
     sleep 1

@@ -25,10 +25,11 @@ services:
       POSTGRES_USER: ${DB_USER:-videocall}
       POSTGRES_PASSWORD: ${DB_PASSWORD:-videocall}
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-videocall}"]
-      interval: 10s
+      test: ["CMD-SHELL", "pg_isready -U videocall"]
+      interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 30s
 
   redis:
     image: redis:7-alpine
@@ -37,9 +38,10 @@ services:
       - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
+      interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 10s
 
 volumes:
   postgres_data:
