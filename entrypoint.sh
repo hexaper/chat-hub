@@ -19,11 +19,11 @@ fi
 su postgres -c "$PG_BIN/pg_ctl -D $PG_DATA -l /var/log/postgresql.log start -w"
 
 # Create database and user if they don't exist
-su postgres -c "psql -tc \"SELECT 1 FROM pg_roles WHERE rolname='${DB_USER:-videocall}'\" | grep -q 1" || \
-    su postgres -c "psql -c \"CREATE USER ${DB_USER:-videocall} WITH PASSWORD '${DB_PASSWORD:-videocall}';\""
+su postgres -c "$PG_BIN/psql -tc \"SELECT 1 FROM pg_roles WHERE rolname='${DB_USER:-videocall}'\" | grep -q 1" || \
+    su postgres -c "$PG_BIN/psql -c \"CREATE USER ${DB_USER:-videocall} WITH PASSWORD '${DB_PASSWORD:-videocall}';\""
 
-su postgres -c "psql -tc \"SELECT 1 FROM pg_database WHERE datname='${DB_NAME:-videocall}'\" | grep -q 1" || \
-    su postgres -c "psql -c \"CREATE DATABASE ${DB_NAME:-videocall} OWNER ${DB_USER:-videocall};\""
+su postgres -c "$PG_BIN/psql -tc \"SELECT 1 FROM pg_database WHERE datname='${DB_NAME:-videocall}'\" | grep -q 1" || \
+    su postgres -c "$PG_BIN/psql -c \"CREATE DATABASE ${DB_NAME:-videocall} OWNER ${DB_USER:-videocall};\""
 
 echo "  PostgreSQL ready"
 
