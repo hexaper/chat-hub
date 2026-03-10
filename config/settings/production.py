@@ -16,7 +16,14 @@ DATABASES = {
     }
 }
 
-SECURE_SSL_REDIRECT = True
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {'hosts': [(os.environ.get('REDIS_HOST', 'redis'), 6379)]},
+    },
+}
+
+SECURE_SSL_REDIRECT = os.environ.get('SECURE_SSL_REDIRECT', 'true').lower() == 'true'
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 SECURE_HSTS_SECONDS = 31536000
