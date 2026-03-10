@@ -2,6 +2,7 @@
 set -euo pipefail
 
 # ── SECRET_KEY: use env var, or generate once and persist to a volume ────────
+mkdir -p /app/mediafiles
 SECRET_KEY_FILE="/app/mediafiles/.secret_key"
 if [ -z "${SECRET_KEY:-}" ]; then
     if [ -f "$SECRET_KEY_FILE" ]; then
