@@ -2,7 +2,8 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
-SECRET_KEY = 'change-me-in-production'
+import secrets as _secrets
+SECRET_KEY = _secrets.token_hex(50)
 
 INSTALLED_APPS = [
     'daphne',

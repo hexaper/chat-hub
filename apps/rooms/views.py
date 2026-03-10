@@ -3,6 +3,7 @@ from channels.layers import get_channel_layer
 from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
+from django.views.decorators.http import require_POST as require_post_method
 from .models import Room, RoomParticipant
 from .forms import RoomForm, RoomPasswordForm
 
@@ -20,6 +21,7 @@ def room_create(request):
         if form.is_valid():
             room = form.save(commit=False)
             room.host = request.user
+            room.set_password(form.cleaned_data.get('password', ''))
             room.save()
             RoomParticipant.objects.create(room=room, user=request.user)
             return redirect('room_detail', slug=room.slug)
@@ -39,7 +41,7 @@ def room_detail(request, slug):
             if request.method == 'POST':
                 form = RoomPasswordForm(request.POST)
                 if form.is_valid():
-                    if form.cleaned_data['password'] == room.password:
+                    if room.check_room_password(form.cleaned_data['password']):
                         request.session[session_key] = True
                     else:
                         form.add_error('password', 'Incorrect password.')
@@ -58,6 +60,7 @@ def room_detail(request, slug):
 
 
 @login_required
+@require_post_method
 def room_leave(request, slug):
     room = get_object_or_404(Room, slug=slug)
     RoomParticipant.objects.filter(room=room, user=request.user).delete()

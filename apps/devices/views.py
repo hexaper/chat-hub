@@ -15,13 +15,22 @@ def device_list(request):
 @login_required
 @require_POST
 def register_device(request):
-    data = json.loads(request.body)
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    device_id = str(data.get('deviceId', '')).strip()[:255]
+    device_type = data.get('deviceType', '')
+    if not device_id or device_type not in ('camera', 'microphone'):
+        return JsonResponse({'error': 'Missing or invalid fields'}, status=400)
+
     device, created = Device.objects.update_or_create(
         user=request.user,
-        device_id=data['deviceId'],
+        device_id=device_id,
         defaults={
-            'label': data.get('label', ''),
-            'device_type': data['deviceType'],
+            'label': str(data.get('label', ''))[:255],
+            'device_type': device_type,
         }
     )
     return JsonResponse({'id': device.id, 'created': created})

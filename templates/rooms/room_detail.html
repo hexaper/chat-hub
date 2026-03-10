@@ -11,7 +11,10 @@
             <button class="btn btn-sm btn-danger me-2">Delete Room</button>
         </form>
         {% endif %}
-        <a href="{% url 'room_leave' room.slug %}" class="btn btn-sm btn-outline-danger">Leave</a>
+        <form method="post" action="{% url 'room_leave' room.slug %}" class="d-inline">
+            {% csrf_token %}
+            <button class="btn btn-sm btn-outline-danger">Leave</button>
+        </form>
     </div>
 </div>
 
@@ -62,9 +65,9 @@
                 {% if is_host and p.user != request.user %}
                 <div>
                     <button class="btn btn-sm btn-outline-warning me-1"
-                            onclick="hostMute('{{ p.user.username }}')">Mute</button>
+                            onclick="hostMute('{{ p.user.username|escapejs }}')">Mute</button>
                     <button class="btn btn-sm btn-outline-danger"
-                            onclick="hostKick('{{ p.user.username }}')">Kick</button>
+                            onclick="hostKick('{{ p.user.username|escapejs }}')">Kick</button>
                 </div>
                 {% endif %}
             </li>
@@ -75,10 +78,10 @@
 
 {% block extra_js %}
 <script>
-    const ROOM_SLUG = "{{ room.slug }}";
-    const USERNAME = "{{ request.user.username }}";
+    const ROOM_SLUG = "{{ room.slug|escapejs }}";
+    const USERNAME = "{{ request.user.username|escapejs }}";
     const IS_HOST = {{ is_host|yesno:"true,false" }};
-    const WS_URL = `ws://${window.location.host}/ws/rooms/${ROOM_SLUG}/`;
+    const WS_URL = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws/rooms/${ROOM_SLUG}/`;
 </script>
 {% load static %}
 <script src="{% static 'js/webrtc.js' %}"></script>

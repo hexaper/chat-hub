@@ -1,5 +1,6 @@
 const peers = {};           // channel_name -> RTCPeerConnection
 const userChannels = {};    // username -> channel_name
+const userSeqs = {};        // username -> seq (join sequence for race detection)
 const vadAnalysers = {};    // id -> { analyser, dataArray, audioCtx }
 const ICE_SERVERS = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 let localStream = null;
@@ -9,6 +10,9 @@ let cameraEnabled = false;  // camera starts off for remote peers
 let blackVideoTrack = null;
 let blackCanvas = null;     // held to prevent GC killing the canvas stream
 const remoteStreams = {};   // channel -> MediaStream we build ourselves
+const remoteAudioElements = {}; // channel -> { element, stream }
+const pendingCandidates = {};   // channel -> RTCIceCandidateInit[]
+let vadLoopId = null;
 
 // ── Device enumeration ──────────────────────────────────────────────────────
 async function enumerateDevices() {
@@ -24,15 +28,19 @@ async function enumerateDevices() {
 
     for (const d of devices) {
         if (d.kind !== 'videoinput' && d.kind !== 'audioinput') continue;
-        await fetch('/devices/register/', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
-            body: JSON.stringify({
-                deviceId: d.deviceId,
-                label: d.label,
-                deviceType: d.kind === 'videoinput' ? 'camera' : 'microphone',
-            }),
-        });
+        try {
+            await fetch('/devices/register/', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-CSRFToken': getCookie('csrftoken') },
+                body: JSON.stringify({
+                    deviceId: d.deviceId,
+                    label: d.label,
+                    deviceType: d.kind === 'videoinput' ? 'camera' : 'microphone',
+                }),
+            });
+        } catch (e) {
+            console.warn('[Devices] Failed to register device:', d.label, e);
+        }
     }
 }
 
@@ -159,6 +167,7 @@ function startVAD(id, stream) {
         analyser.smoothingTimeConstant = 0.8;
         source.connect(analyser);
         vadAnalysers[id] = { analyser, dataArray: new Uint8Array(analyser.frequencyBinCount), audioCtx };
+        startVadLoop();
     } catch (_) {}
 }
 
@@ -167,6 +176,7 @@ function stopVAD(id) {
         vadAnalysers[id].audioCtx.close();
         delete vadAnalysers[id];
     }
+    if (Object.keys(vadAnalysers).length === 0) stopVadLoop();
 }
 
 function vadLoop() {
@@ -179,10 +189,41 @@ function vadLoop() {
             : document.getElementById(`video-${id}`)?.querySelector('video');
         if (videoEl) videoEl.classList.toggle('speaking', speaking);
     }
-    requestAnimationFrame(vadLoop);
+    vadLoopId = requestAnimationFrame(vadLoop);
 }
 
-vadLoop();
+function startVadLoop() {
+    if (!vadLoopId) vadLoopId = requestAnimationFrame(vadLoop);
+}
+
+function stopVadLoop() {
+    if (vadLoopId) { cancelAnimationFrame(vadLoopId); vadLoopId = null; }
+}
+
+// ── Cleanup on page unload ──────────────────────────────────────────────────
+function cleanupLocalResources() {
+    if (localStream) {
+        localStream.getTracks().forEach(t => t.stop());
+        localStream = null;
+    }
+    if (blackVideoTrack) {
+        blackVideoTrack.stop();
+        blackVideoTrack = null;
+        blackCanvas = null;
+    }
+    for (const channel of Object.keys(peers)) {
+        removePeer(channel);
+    }
+    if (socket && socket.readyState === WebSocket.OPEN) {
+        socket.close();
+    }
+    for (const id of Object.keys(vadAnalysers)) {
+        stopVAD(id);
+    }
+    stopVadLoop();
+}
+
+window.addEventListener('beforeunload', cleanupLocalResources);
 
 // ── WebSocket / signaling ───────────────────────────────────────────────────
 function connectWebSocket(cameraId, micId) {
@@ -193,18 +234,40 @@ function connectWebSocket(cameraId, micId) {
         broadcastMediaState();
     };
 
+    socket.onerror = (err) => {
+        console.error('[WS] WebSocket error:', err);
+    };
+
+    socket.onclose = ({ code, wasClean }) => {
+        console.warn(`[WS] Connection closed (code=${code}, clean=${wasClean})`);
+    };
+
     socket.onmessage = async ({ data }) => {
-        const msg = JSON.parse(data);
+        let msg;
+        try {
+            msg = JSON.parse(data);
+        } catch (e) {
+            console.error('[WS] Received unparseable message:', data, e);
+            return;
+        }
 
         if (msg.type === 'my_channel') {
             myChannel = msg.channel;
 
         } else if (msg.type === 'user_joined') {
+            userSeqs[msg.username] = msg.seq;
             userChannels[msg.username] = msg.channel;
             addParticipantToList(msg.username);
             if (msg.channel !== myChannel) await createOffer(msg.channel, msg.username);
 
         } else if (msg.type === 'user_left') {
+            // Only remove if this event matches the current known session
+            if (userSeqs[msg.username] !== msg.seq) {
+                // Stale user_left from an old session — just clean up the old peer
+                removePeer(msg.channel);
+                return;
+            }
+            delete userSeqs[msg.username];
             delete userChannels[msg.username];
             removeParticipantFromList(msg.username);
             removePeer(msg.channel);
@@ -212,9 +275,18 @@ function connectWebSocket(cameraId, micId) {
         } else if (msg.type === 'offer') {
             await handleOffer(msg.payload, msg.sender, msg.username);
         } else if (msg.type === 'answer') {
-            await peers[msg.sender]?.setRemoteDescription(msg.payload);
+            const pc = peers[msg.sender];
+            if (pc) {
+                await pc.setRemoteDescription(msg.payload);
+                await drainCandidates(msg.sender);
+            }
         } else if (msg.type === 'ice-candidate') {
-            await peers[msg.sender]?.addIceCandidate(msg.payload);
+            const pc = peers[msg.sender];
+            if (pc && pc.remoteDescription) {
+                try { await pc.addIceCandidate(msg.payload); } catch (e) { console.warn('[ICE]', e); }
+            } else {
+                (pendingCandidates[msg.sender] ??= []).push(msg.payload);
+            }
 
         } else if (msg.type === 'kicked') {
             socket.close();
@@ -243,14 +315,27 @@ function connectWebSocket(cameraId, micId) {
     };
 }
 
+// ── ICE candidate queue ─────────────────────────────────────────────────────
+async function drainCandidates(channel) {
+    const queue = pendingCandidates[channel] ?? [];
+    delete pendingCandidates[channel];
+    for (const c of queue) {
+        try { await peers[channel].addIceCandidate(c); } catch (e) { console.warn('[ICE drain]', e); }
+    }
+}
+
 // ── WebRTC helpers ──────────────────────────────────────────────────────────
 function createPeerConnection(targetChannel, username) {
+    // Close any existing connection for this channel before creating a new one
+    if (peers[targetChannel]) {
+        console.warn(`[WebRTC] Replacing existing peer for channel ${targetChannel}`);
+        removePeer(targetChannel);
+    }
+
     const pc = new RTCPeerConnection(ICE_SERVERS);
     peers[targetChannel] = pc;
 
     // Add audio and video as independent transceivers with no shared stream.
-    // This fully decouples the audio pipeline from camera state — no stream-grouping
-    // ambiguity, no dependency on a video track being "live" for audio to flow.
     const audioTrack = localStream.getAudioTracks()[0];
     if (audioTrack) pc.addTransceiver(audioTrack, { direction: 'sendrecv' });
 
@@ -269,15 +354,13 @@ function createPeerConnection(targetChannel, username) {
         if (track.kind === 'video') {
             addRemoteVideo(targetChannel, username, remoteStreams[targetChannel]);
         } else if (track.kind === 'audio') {
-            // Dedicated <audio> element created at the moment the audio track arrives.
-            // Relying on the <video> element to pick up audio tracks added after srcObject
-            // is set is unreliable across browsers — a separate element is guaranteed.
             const audioStream = new MediaStream([track]);
             const audioEl = document.createElement('audio');
             audioEl.id = `audio-${targetChannel}`;
             audioEl.srcObject = audioStream;
             audioEl.autoplay = true;
             document.body.appendChild(audioEl);
+            remoteAudioElements[targetChannel] = { element: audioEl, stream: audioStream };
             startVAD(targetChannel, audioStream);
         }
     };
@@ -294,6 +377,7 @@ async function createOffer(targetChannel, username) {
 async function handleOffer(offer, senderChannel, username) {
     const pc = createPeerConnection(senderChannel, username);
     await pc.setRemoteDescription(offer);
+    await drainCandidates(senderChannel);
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
     socket.send(JSON.stringify({ type: 'answer', target: senderChannel, payload: answer }));
@@ -301,46 +385,86 @@ async function handleOffer(offer, senderChannel, username) {
 
 function addRemoteVideo(channel, username, stream) {
     if (document.getElementById(`video-${channel}`)) return;
+
     const col = document.createElement('div');
     col.className = 'col-md-6';
     col.id = `video-${channel}`;
-    col.innerHTML = `
-        <div class="video-wrapper">
-            <video autoplay muted playsinline class="w-100 rounded bg-dark"></video>
-            <div class="cam-placeholder" id="cam-placeholder-${channel}">
-                <i class="bi bi-camera-video-off"></i>
-            </div>
-            <div class="media-icons" id="media-icons-${channel}">
-                <span class="media-icon mic-icon"><i class="bi bi-mic-mute-fill text-danger"></i></span>
-                <span class="media-icon cam-icon"><i class="bi bi-camera-video-off-fill text-danger"></i></span>
-            </div>
-        </div>
-        <p class="text-center mt-1"><strong>${username}</strong></p>`;
-    col.querySelector('video').srcObject = stream;
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'video-wrapper';
+
+    const video = document.createElement('video');
+    video.autoplay = true;
+    video.muted = true;
+    video.setAttribute('playsinline', '');
+    video.className = 'w-100 rounded bg-dark';
+    video.srcObject = stream;
+
+    const placeholder = document.createElement('div');
+    placeholder.className = 'cam-placeholder';
+    placeholder.id = `cam-placeholder-${channel}`;
+    placeholder.innerHTML = '<i class="bi bi-camera-video-off"></i>';
+
+    const icons = document.createElement('div');
+    icons.className = 'media-icons';
+    icons.id = `media-icons-${channel}`;
+    icons.innerHTML = `
+        <span class="media-icon mic-icon"><i class="bi bi-mic-mute-fill text-danger"></i></span>
+        <span class="media-icon cam-icon"><i class="bi bi-camera-video-off-fill text-danger"></i></span>`;
+
+    wrapper.append(video, placeholder, icons);
+
+    const label = document.createElement('p');
+    label.className = 'text-center mt-1';
+    const strong = document.createElement('strong');
+    strong.textContent = username;  // textContent is XSS-safe
+    label.appendChild(strong);
+
+    col.append(wrapper, label);
     document.getElementById('videoGrid').appendChild(col);
 }
 
 function removePeer(channel) {
     stopVAD(channel);
     delete remoteStreams[channel];
+    delete pendingCandidates[channel];
+    const audioRef = remoteAudioElements[channel];
+    if (audioRef) {
+        audioRef.element.srcObject = null;
+        audioRef.element.remove();
+        delete remoteAudioElements[channel];
+    }
     const pc = peers[channel];
     if (pc) { pc.close(); delete peers[channel]; }
     document.getElementById(`video-${channel}`)?.remove();
-    document.getElementById(`audio-${channel}`)?.remove();
 }
 
 // ── Participant list helpers ──────────────────────────────────────────────────
 function addParticipantToList(username) {
     if (document.getElementById(`participant-${username}`)) return;
+
     const li = document.createElement('li');
     li.className = 'list-group-item d-flex justify-content-between align-items-center';
     li.id = `participant-${username}`;
-    li.innerHTML = username + (IS_HOST && username !== USERNAME
-        ? ` <div>
-                <button class="btn btn-sm btn-outline-warning me-1" onclick="hostMute('${username}')">Mute</button>
-                <button class="btn btn-sm btn-outline-danger" onclick="hostKick('${username}')">Kick</button>
-            </div>`
-        : '');
+    li.textContent = username;  // XSS-safe
+
+    if (IS_HOST && username !== USERNAME) {
+        const div = document.createElement('div');
+
+        const muteBtn = document.createElement('button');
+        muteBtn.className = 'btn btn-sm btn-outline-warning me-1';
+        muteBtn.textContent = 'Mute';
+        muteBtn.addEventListener('click', () => hostMute(username));
+
+        const kickBtn = document.createElement('button');
+        kickBtn.className = 'btn btn-sm btn-outline-danger';
+        kickBtn.textContent = 'Kick';
+        kickBtn.addEventListener('click', () => hostKick(username));
+
+        div.append(muteBtn, kickBtn);
+        li.appendChild(div);
+    }
+
     document.getElementById('participantList').appendChild(li);
 }
 
@@ -351,7 +475,7 @@ function removeParticipantFromList(username) {
 // ── Cookie helper ─────────────────────────────────────────────────────────────
 function getCookie(name) {
     return document.cookie.split(';').map(c => c.trim())
-        .find(c => c.startsWith(name + '='))?.split('=')[1] ?? '';
+        .find(c => c.startsWith(name + '='))?.slice(name.length + 1) ?? '';
 }
 
 // Enumerate devices then auto-start the call

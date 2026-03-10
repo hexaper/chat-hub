@@ -1,6 +1,7 @@
 import uuid
 from django.db import models
 from django.conf import settings
+from django.contrib.auth.hashers import make_password, check_password
 
 
 class Room(models.Model):
@@ -11,6 +12,12 @@ class Room(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     is_active = models.BooleanField(default=True)
     password = models.CharField(max_length=255, blank=True)
+
+    def set_password(self, raw_password):
+        self.password = make_password(raw_password) if raw_password else ''
+
+    def check_room_password(self, raw_password):
+        return check_password(raw_password, self.password)
 
     @property
     def is_password_protected(self):
