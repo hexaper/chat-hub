@@ -31,6 +31,18 @@ STORAGES = {
     },
 }
 
+# Trust proxy headers (Koyeb, Railway, etc. terminate TLS at the load balancer)
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+CSRF_TRUSTED_ORIGINS = [
+    f'https://{h.strip()}' for h in ALLOWED_HOSTS if h.strip() and h.strip() != '*'
+] + [
+    o.strip() if '://' in o.strip() else f'https://{o.strip()}'
+    for o in os.environ.get('CSRF_TRUSTED_ORIGINS', '').split(',') if o.strip()
+]
+# Wildcard: trust all HTTPS origins when ALLOWED_HOSTS=*
+if '*' in ALLOWED_HOSTS:
+    CSRF_TRUSTED_ORIGINS.append('https://*.koyeb.app')
+
 _use_ssl = os.environ.get('SECURE_SSL_REDIRECT', 'true').lower() == 'true'
 SECURE_SSL_REDIRECT = _use_ssl
 SESSION_COOKIE_SECURE = _use_ssl
