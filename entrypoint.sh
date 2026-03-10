@@ -37,10 +37,11 @@ if [ "$DB_HOST" = "localhost" ] || [ "$DB_HOST" = "127.0.0.1" ]; then
     PG_LOG="/tmp/pg.log"
 
     mkdir -p "$PG_DATA" "$PG_RUN"
+    chown -R postgres:postgres "$PG_DATA" "$PG_RUN" "$PG_LOG" 2>/dev/null || chown -R postgres "$PG_DATA" "$PG_RUN"
 
     # Initialize DB cluster on first run
     if [ ! -f "$PG_DATA/PG_VERSION" ]; then
-        "$PG_BIN/initdb" -D "$PG_DATA" --auth=trust --no-locale --encoding=UTF8
+        su postgres -s /bin/sh -c "$PG_BIN/initdb -D $PG_DATA --auth=trust --no-locale --encoding=UTF8"
     fi
 
     # Configure to use /tmp sockets and listen on localhost
@@ -61,17 +62,17 @@ host    all   all   127.0.0.1/32  trust
 host    all   all   ::1/128       trust
 PGHBA
 
+    chown postgres "$PG_DATA/postgresql.conf" "$PG_DATA/pg_hba.conf"
+
     # Start PostgreSQL
-    "$PG_BIN/pg_ctl" -D "$PG_DATA" -l "$PG_LOG" start -w -t 30 || {
+    su postgres -s /bin/sh -c "$PG_BIN/pg_ctl -D $PG_DATA -l $PG_LOG start -w -t 30" || {
         echo "FATAL: PostgreSQL failed to start. Log output:" >&2
         cat "$PG_LOG" >&2
         exit 1
     }
 
-    export PGHOST="$PG_RUN"
-
     # Create user and database if they don't exist
-    "$PG_BIN/psql" -h "$PG_RUN" -p 5432 -U "$(whoami)" -d postgres -v ON_ERROR_STOP=1 <<SQL
+    su postgres -s /bin/sh -c "$PG_BIN/psql -h $PG_RUN -p 5432 -d postgres -v ON_ERROR_STOP=1" <<SQL
 DO \$\$
 BEGIN
     IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '${DB_USER}') THEN
@@ -80,11 +81,11 @@ BEGIN
 END
 \$\$;
 SQL
-    "$PG_BIN/psql" -h "$PG_RUN" -p 5432 -U "$(whoami)" -d postgres -tc "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}'" | grep -q 1 || \
-        "$PG_BIN/createdb" -h "$PG_RUN" -p 5432 -U "$(whoami)" -O "${DB_USER}" "${DB_NAME}"
+    su postgres -s /bin/sh -c "$PG_BIN/psql -h $PG_RUN -p 5432 -d postgres -tc \"SELECT 1 FROM pg_database WHERE datname='${DB_NAME}'\"" | grep -q 1 || \
+        su postgres -s /bin/sh -c "$PG_BIN/createdb -h $PG_RUN -p 5432 -O ${DB_USER} ${DB_NAME}"
 
-    # Set DB_HOST to the socket dir so Django connects via unix socket
-    export DB_HOST="$PG_RUN"
+    # Django connects via localhost TCP
+    export DB_HOST="localhost"
 
     echo "  PostgreSQL ready"
 else
