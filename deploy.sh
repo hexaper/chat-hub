@@ -55,7 +55,11 @@ apt-get install -y -qq \
     git curl rsync build-essential \
     libjpeg-dev zlib1g-dev libffi-dev \
     > /dev/null
-
+sudo apt-get install wget ca-certificates
+wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ `lsb_release -cs`-pgdg main" >> /etc/apt/sources.list.d/pgdg.list'
+sudo apt-get update
+sudo apt-get install postgresql postgresql-contrib
 echo "  ✓ System packages installed"
 
 # ── 2. Create application user ──────────────────────────────────────────────
