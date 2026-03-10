@@ -1,5 +1,5 @@
 FROM python:3.12-slim
-
+USER root
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev sudo libjpeg-dev zlib1g-dev && \
     rm -rf /var/lib/apt/lists/*
