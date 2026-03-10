@@ -1,8 +1,21 @@
 FROM python:3.12-slim
-USER root
-RUN export DEBIAN_FRONTEND="noninteractive"
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+# Install C libs and Redis first (no issues)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq-dev sudo libjpeg-dev zlib1g-dev && \
+    redis-server \
+    libpq-dev libjpeg-dev zlib1g-dev \
+    gnupg2 curl lsb-release && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install PostgreSQL from official repo (avoids broken debconf scripts in slim)
+RUN curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc | gpg --dearmor -o /usr/share/keyrings/pgdg.gpg && \
+    echo "deb [signed-by=/usr/share/keyrings/pgdg.gpg] http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" \
+    > /etc/apt/sources.list.d/pgdg.list && \
+    apt-get update && apt-get install -y --no-install-recommends postgresql-16 && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -11,9 +24,6 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt psycopg2-binary
 
 COPY . .
-RUN chmod +x deploy.sh
-RUN sudo ./deploy.sh
-RUN python manage.py collectstatic --noinput
 RUN chmod +x entrypoint.sh
 
 EXPOSE 8000

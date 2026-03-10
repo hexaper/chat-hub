@@ -19,13 +19,14 @@ DATABASES = {
 CHANNEL_LAYERS = {
     'default': {
         'BACKEND': 'channels_redis.core.RedisChannelLayer',
-        'CONFIG': {'hosts': [(os.environ.get('REDIS_HOST', 'redis'), 6379)]},
+        'CONFIG': {'hosts': [(os.environ.get('REDIS_HOST', 'localhost'), 6379)]},
     },
 }
 
-SECURE_SSL_REDIRECT = os.environ.get('SECURE_SSL_REDIRECT', 'true').lower() == 'true'
-SESSION_COOKIE_SECURE = True
-CSRF_COOKIE_SECURE = True
+_use_ssl = os.environ.get('SECURE_SSL_REDIRECT', 'true').lower() == 'true'
+SECURE_SSL_REDIRECT = _use_ssl
+SESSION_COOKIE_SECURE = _use_ssl
+CSRF_COOKIE_SECURE = _use_ssl
 SECURE_HSTS_SECONDS = 31536000
 SECURE_HSTS_INCLUDE_SUBDOMAINS = True
 SECURE_CONTENT_TYPE_NOSNIFF = True

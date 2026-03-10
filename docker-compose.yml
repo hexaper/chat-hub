@@ -7,9 +7,9 @@ services:
     depends_on:
       - redis
       - db
-    command: >
-      sh -c "python manage.py migrate --noinput &&
-             daphne -b 0.0.0.0 -p 8000 config.asgi:application"
+    volumes:
+      - static_files:/app/staticfiles
+      - media_files:/app/mediafiles
 
   db:
     image: postgres:16-alpine
@@ -28,3 +28,5 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  static_files:
+  media_files:
