@@ -80,7 +80,7 @@ done
 
 # ── Django setup (run as appuser) ─────────────────────────────────────────────
 echo "Running migrations..."
-su appuser -s /bin/sh -c "python manage.py migrate --noinput"
+su appuser -s /bin/sh -p -c "python manage.py migrate --noinput"
 
 echo "Starting Daphne on 0.0.0.0:8000..."
-exec su appuser -s /bin/sh -c "exec daphne -b 0.0.0.0 -p 8000 config.asgi:application"
+exec su appuser -s /bin/sh -p -c "exec daphne -b 0.0.0.0 -p 8000 config.asgi:application"
