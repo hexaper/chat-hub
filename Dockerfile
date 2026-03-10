@@ -33,10 +33,6 @@ RUN SECRET_KEY=build-placeholder \
     DB_NAME=x DB_USER=x DB_PASSWORD=x \
     python manage.py collectstatic --noinput
 
-# Create non-root user (entrypoint handles the user switch for Daphne)
-RUN addgroup --system appgroup && adduser --system --ingroup appgroup appuser \
-    && chown -R appuser:appgroup /app
-
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
