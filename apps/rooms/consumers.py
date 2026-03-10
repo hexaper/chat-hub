@@ -37,13 +37,14 @@ class RoomConsumer(AsyncWebsocketConsumer):
         if not hasattr(self, 'room_group') or not self.user.is_authenticated:
             return
 
+        await self.channel_layer.group_discard(self.room_group, self.channel_name)
         await self.channel_layer.group_send(self.room_group, {
             'type': 'user_left',
             'username': self.user.username,
             'channel': self.channel_name,
             'seq': self.join_seq,
         })
-        await self.channel_layer.group_discard(self.room_group, self.channel_name)
+        await self.remove_self()
 
     async def receive(self, text_data):
         try:
@@ -149,6 +150,12 @@ class RoomConsumer(AsyncWebsocketConsumer):
     def remove_participant(self, username):
         RoomParticipant.objects.filter(
             room__slug=self.room_slug, user__username=username
+        ).delete()
+
+    @database_sync_to_async
+    def remove_self(self):
+        RoomParticipant.objects.filter(
+            room__slug=self.room_slug, user=self.user
         ).delete()
 
     @database_sync_to_async

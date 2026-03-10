@@ -255,6 +255,11 @@ function connectWebSocket(cameraId, micId) {
             myChannel = msg.channel;
 
         } else if (msg.type === 'user_joined') {
+            // If this user was previously connected with a different channel, clean up the old peer
+            const oldChannel = userChannels[msg.username];
+            if (oldChannel && oldChannel !== msg.channel) {
+                removePeer(oldChannel);
+            }
             userSeqs[msg.username] = msg.seq;
             userChannels[msg.username] = msg.channel;
             addParticipantToList(msg.username);
