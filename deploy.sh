@@ -46,20 +46,21 @@ echo ""
 # ── 1. System packages ──────────────────────────────────────────────────────
 echo "[1/9] Installing system packages..."
 apt-get update -qq
+sudo apt-get install -y wget ca-certificates
+wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ `lsb_release -cs`-pgdg main" >> /etc/apt/sources.list.d/pgdg.list'
+sudo apt-get update
+sudo apt-get install -y postgresql postgresql-contrib 
 apt-get install -y -qq \
     python3 python3-pip python3-venv python3-dev \
-    postgresql postgresql-contrib libpq-dev \
+    libpq-dev \
     redis-server \
     nginx \
     certbot python3-certbot-nginx \
     git curl rsync build-essential \
     libjpeg-dev zlib1g-dev libffi-dev \
     > /dev/null
-sudo apt-get install wget ca-certificates
-wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
-sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt/ `lsb_release -cs`-pgdg main" >> /etc/apt/sources.list.d/pgdg.list'
-sudo apt-get update
-sudo apt-get install postgresql postgresql-contrib -y
+
 echo "  ✓ System packages installed"
 
 # ── 2. Create application user ──────────────────────────────────────────────
