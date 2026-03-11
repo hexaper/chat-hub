@@ -23,36 +23,6 @@ if [ -z "${SECRET_KEY:-}" ]; then
     fi
 fi
 
-# ── Wait for external PostgreSQL ─────────────────────────────────────────────
-PG_HOST="${POSTGRES_HOST:-localhost}"
-PG_PORT="${POSTGRES_PORT:-5432}"
-echo "Waiting for PostgreSQL at ${PG_HOST}:${PG_PORT}..."
-for i in $(seq 1 60); do
-    if python -c "
-import socket, sys
-s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-try:
-    s.settimeout(5)
-    s.connect(('${PG_HOST}', ${PG_PORT}))
-    sys.exit(0)
-except Exception:
-    sys.exit(1)
-finally:
-    s.close()
-" 2>/dev/null; then
-        echo "  PostgreSQL ready"
-        break
-    fi
-    if [ "$i" -eq 60 ]; then
-        echo "FATAL: PostgreSQL not reachable after 60s" >&2
-        exit 1
-    fi
-    sleep 1
-done
-
-# ── Redis ────────────────────────────────────────────────────────────────────
-echo "Using external Redis"
-
 # ── Django setup ─────────────────────────────────────────────────────────────
 echo "Running migrations..."
 python manage.py migrate --noinput
