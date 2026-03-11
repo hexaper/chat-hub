@@ -8,9 +8,25 @@
         <p class="text-muted mb-0">{{ server.description }}</p>
         {% endif %}
         <small class="text-muted">{{ member_count }} member{{ member_count|pluralize }}</small>
+        {% if server.is_public %}
+        <span class="badge bg-success ms-2">Public</span>
+        {% else %}
+        <span class="badge bg-secondary ms-2">Private</span>
+        {% endif %}
     </div>
     <div>
         <a href="{% url 'room_create' server_slug=server.slug %}" class="btn btn-primary">+ New Room</a>
+        {% if is_owner %}
+        <a href="{% url 'server_settings' server_slug=server.slug %}" class="btn btn-outline-secondary ms-2" title="Server Settings">
+            <i class="bi bi-gear"></i> Settings
+        </a>
+        {% else %}
+        <form method="post" action="{% url 'server_leave' server_slug=server.slug %}" class="d-inline ms-2"
+              onsubmit="return confirm('Leave this server?')">
+            {% csrf_token %}
+            <button class="btn btn-outline-danger">Leave Server</button>
+        </form>
+        {% endif %}
         <a href="{% url 'server_list' %}" class="btn btn-outline-secondary ms-2">Back</a>
     </div>
 </div>
@@ -19,7 +35,7 @@
 <div class="alert alert-info py-2">
     <strong>Invite link:</strong>
     <code id="inviteLink">{{ request.scheme }}://{{ request.get_host }}/servers/join/?code={{ server.invite_code }}</code>
-    <button class="btn btn-sm btn-outline-secondary ms-2" onclick="navigator.clipboard.writeText(document.getElementById('inviteLink').textContent).then(() => this.textContent = 'Copied!')">Copy</button>
+    <button class="btn btn-sm btn-outline-secondary ms-2" onclick="navigator.clipboard.writeText(document.getElementById('inviteLink').textContent).then(() => this.textContent = 'Copied!'); setTimeout(() => this.textContent = 'Copy', 2000)">Copy</button>
 </div>
 {% endif %}
 

@@ -11,6 +11,15 @@ class ServerForm(forms.ModelForm):
         }
 
 
+class ServerSettingsForm(forms.ModelForm):
+    class Meta:
+        model = Server
+        fields = ('name', 'description', 'is_public')
+        widgets = {
+            'description': forms.Textarea(attrs={'rows': 3}),
+        }
+
+
 class RoomForm(forms.ModelForm):
     password = forms.CharField(
         required=False,

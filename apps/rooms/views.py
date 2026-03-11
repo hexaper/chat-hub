@@ -9,7 +9,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST as require_post_method
 
 from .models import Server, ServerMember, Room, RoomParticipant
-from .forms import ServerForm, RoomForm, RoomPasswordForm
+from .forms import ServerForm, ServerSettingsForm, RoomForm, RoomPasswordForm
 
 
 # ── Server views ──────────────────────────────────────────────────────────────
@@ -83,6 +83,74 @@ def server_join(request):
         ServerMember.objects.get_or_create(server=server, user=request.user)
         messages.success(request, f'You joined {server.name}!')
         return redirect('server_detail', server_slug=server.slug)
+    return redirect('server_list')
+
+
+@login_required
+def server_settings(request, server_slug):
+    server = get_object_or_404(Server, slug=server_slug, owner=request.user)
+    members = ServerMember.objects.filter(server=server).select_related('user').order_by('joined_at')
+
+    if request.method == 'POST':
+        form = ServerSettingsForm(request.POST, instance=server)
+        if form.is_valid():
+            form.save()
+            messages.success(request, 'Server settings updated.')
+            return redirect('server_settings', server_slug=server.slug)
+    else:
+        form = ServerSettingsForm(instance=server)
+
+    return render(request, 'rooms/server_settings.html', {
+        'server': server,
+        'form': form,
+        'members': members,
+    })
+
+
+@login_required
+@require_post_method
+def server_kick_member(request, server_slug):
+    server = get_object_or_404(Server, slug=server_slug, owner=request.user)
+    user_id = request.POST.get('user_id')
+    if str(user_id) == str(server.owner_id):
+        messages.error(request, "You can't remove yourself as owner.")
+    else:
+        removed = ServerMember.objects.filter(server=server, user_id=user_id).delete()[0]
+        if removed:
+            messages.success(request, 'Member removed.')
+        else:
+            messages.error(request, 'Member not found.')
+    return redirect('server_settings', server_slug=server.slug)
+
+
+@login_required
+@require_post_method
+def server_regenerate_invite(request, server_slug):
+    server = get_object_or_404(Server, slug=server_slug, owner=request.user)
+    server.regenerate_invite_code()
+    messages.success(request, 'Invite code regenerated.')
+    return redirect('server_settings', server_slug=server.slug)
+
+
+@login_required
+@require_post_method
+def server_leave(request, server_slug):
+    server = get_object_or_404(Server, slug=server_slug)
+    if server.owner == request.user:
+        messages.error(request, "You can't leave your own server. Delete it instead.")
+        return redirect('server_settings', server_slug=server.slug)
+    ServerMember.objects.filter(server=server, user=request.user).delete()
+    messages.info(request, f'You left {server.name}.')
+    return redirect('server_list')
+
+
+@login_required
+@require_post_method
+def server_delete(request, server_slug):
+    server = get_object_or_404(Server, slug=server_slug, owner=request.user)
+    name = server.name
+    server.delete()
+    messages.success(request, f'Server "{name}" deleted.')
     return redirect('server_list')
 
 

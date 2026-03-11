@@ -1,0 +1,86 @@
+{% extends 'base.html' %}
+{% load crispy_forms_tags %}
+{% block title %}{{ server.name }} — Settings{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>Server Settings</h2>
+    <a href="{% url 'server_detail' server_slug=server.slug %}" class="btn btn-outline-secondary">Back to Server</a>
+</div>
+
+<div class="row">
+    <!-- Settings form -->
+    <div class="col-md-6">
+        <div class="card mb-4">
+            <div class="card-header"><strong>General</strong></div>
+            <div class="card-body">
+                <form method="post">
+                    {% csrf_token %}
+                    {{ form|crispy }}
+                    <button class="btn btn-primary">Save Changes</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Invite link -->
+        <div class="card mb-4">
+            <div class="card-header"><strong>Invite Link</strong></div>
+            <div class="card-body">
+                <div class="input-group mb-3">
+                    <input type="text" class="form-control" id="inviteLink" readonly
+                           value="{{ request.scheme }}://{{ request.get_host }}/servers/join/?code={{ server.invite_code }}">
+                    <button class="btn btn-outline-secondary" type="button"
+                            onclick="navigator.clipboard.writeText(document.getElementById('inviteLink').value).then(() => this.textContent = 'Copied!'); setTimeout(() => this.textContent = 'Copy', 2000)">Copy</button>
+                </div>
+                <form method="post" action="{% url 'server_regenerate_invite' server_slug=server.slug %}" class="d-inline">
+                    {% csrf_token %}
+                    <button class="btn btn-sm btn-outline-warning"
+                            onclick="return confirm('This will invalidate the current invite link. Continue?')">Regenerate Invite Code</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Danger zone -->
+        <div class="card border-danger">
+            <div class="card-header text-danger"><strong>Danger Zone</strong></div>
+            <div class="card-body">
+                <form method="post" action="{% url 'server_delete' server_slug=server.slug %}"
+                      onsubmit="return confirm('Are you sure you want to permanently delete this server and all its rooms?')">
+                    {% csrf_token %}
+                    <button class="btn btn-danger">Delete Server</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Members list -->
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <strong>Members</strong>
+                <span class="badge bg-secondary ms-1">{{ members|length }}</span>
+            </div>
+            <ul class="list-group list-group-flush">
+                {% for m in members %}
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong>{{ m.user.username }}</strong>
+                        {% if m.user == server.owner %}
+                        <span class="badge bg-primary ms-1">Owner</span>
+                        {% endif %}
+                        <br><small class="text-muted">Joined {{ m.joined_at|date:"M d, Y" }}</small>
+                    </div>
+                    {% if m.user != server.owner %}
+                    <form method="post" action="{% url 'server_kick_member' server_slug=server.slug %}"
+                          onsubmit="return confirm('Remove {{ m.user.username }} from this server?')">
+                        {% csrf_token %}
+                        <input type="hidden" name="user_id" value="{{ m.user.id }}">
+                        <button class="btn btn-sm btn-outline-danger">Remove</button>
+                    </form>
+                    {% endif %}
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+</div>
+{% endblock %}
