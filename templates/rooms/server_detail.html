@@ -103,16 +103,27 @@
         return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     }
 
+    function avatarHtml(msg) {
+        if (msg.avatar_url) {
+            return `<img src="${escapeHtml(msg.avatar_url)}" class="chat-avatar" alt="">`;
+        }
+        const letter = msg.username.charAt(0).toUpperCase();
+        return `<div class="chat-avatar chat-avatar-placeholder">${escapeHtml(letter)}</div>`;
+    }
+
     function appendMessage(msg) {
         const isOwn = msg.username === USERNAME;
         const el = document.createElement('div');
-        el.className = 'chat-msg mb-2';
+        el.className = 'chat-msg d-flex gap-2 mb-2';
         el.innerHTML =
+            avatarHtml(msg) +
+            `<div class="flex-grow-1 min-width-0">` +
             `<div class="d-flex justify-content-between align-items-baseline">` +
             `<strong class="${isOwn ? 'text-primary' : ''}">${escapeHtml(msg.username)}</strong>` +
             `<small class="text-muted ms-2">${formatTime(msg.created_at)}</small>` +
             `</div>` +
-            `<div class="chat-msg-content">${escapeHtml(msg.content)}</div>`;
+            `<div class="chat-msg-content">${escapeHtml(msg.content)}</div>` +
+            `</div>`;
         messagesDiv.appendChild(el);
         messagesDiv.scrollTop = messagesDiv.scrollHeight;
     }

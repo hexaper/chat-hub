@@ -52,6 +52,7 @@ class ServerChatConsumer(AsyncWebsocketConsumer):
             'type': 'chat_message',
             'id': msg['id'],
             'username': msg['username'],
+            'avatar_url': msg['avatar_url'],
             'content': msg['content'],
             'created_at': msg['created_at'],
         })
@@ -61,6 +62,7 @@ class ServerChatConsumer(AsyncWebsocketConsumer):
             'type': 'chat_message',
             'id': event['id'],
             'username': event['username'],
+            'avatar_url': event['avatar_url'],
             'content': event['content'],
             'created_at': event['created_at'],
         }))
@@ -71,6 +73,12 @@ class ServerChatConsumer(AsyncWebsocketConsumer):
             server__slug=self.server_slug, user=self.user
         ).exists()
 
+    @staticmethod
+    def _avatar_url(user):
+        if user.avatar and hasattr(user.avatar, 'url'):
+            return user.avatar.url
+        return ''
+
     @database_sync_to_async
     def get_history(self):
         msgs = ChatMessage.objects.filter(
@@ -80,6 +88,7 @@ class ServerChatConsumer(AsyncWebsocketConsumer):
             {
                 'id': m.id,
                 'username': m.user.username,
+                'avatar_url': self._avatar_url(m.user),
                 'content': m.content,
                 'created_at': m.created_at.isoformat(),
             }
@@ -95,6 +104,7 @@ class ServerChatConsumer(AsyncWebsocketConsumer):
         return {
             'id': msg.id,
             'username': self.user.username,
+            'avatar_url': self._avatar_url(self.user),
             'content': msg.content,
             'created_at': msg.created_at.isoformat(),
         }
