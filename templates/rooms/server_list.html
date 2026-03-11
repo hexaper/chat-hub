@@ -1,0 +1,71 @@
+{% extends 'base.html' %}
+{% block title %}Servers{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>My Servers</h2>
+    <div>
+        <button class="btn btn-outline-primary me-2" data-bs-toggle="modal" data-bs-target="#joinModal">Join Server</button>
+        <a href="{% url 'server_create' %}" class="btn btn-primary">+ New Server</a>
+    </div>
+</div>
+
+{% for server in my_servers %}
+<div class="card mb-2">
+    <div class="card-body d-flex justify-content-between align-items-center">
+        <div>
+            <strong>{{ server.name }}</strong>
+            {% if server.is_public %}
+            <span class="badge bg-success ms-2">Public</span>
+            {% else %}
+            <span class="badge bg-secondary ms-2">Private</span>
+            {% endif %}
+            <small class="text-muted ms-2">Owner: {{ server.owner.username }}</small>
+        </div>
+        <a href="{% url 'server_detail' server_slug=server.slug %}" class="btn btn-sm btn-success">Open</a>
+    </div>
+</div>
+{% empty %}
+<p class="text-muted">You haven't joined any servers yet. Create one or join with an invite code!</p>
+{% endfor %}
+
+{% if public_servers %}
+<h2 class="mt-5 mb-3">Public Servers</h2>
+{% for server in public_servers %}
+<div class="card mb-2">
+    <div class="card-body d-flex justify-content-between align-items-center">
+        <div>
+            <strong>{{ server.name }}</strong>
+            <span class="badge bg-success ms-2">Public</span>
+            <small class="text-muted ms-2">Owner: {{ server.owner.username }}</small>
+            {% if server.description %}
+            <br><small class="text-muted">{{ server.description|truncatewords:20 }}</small>
+            {% endif %}
+        </div>
+        <a href="{% url 'server_detail' server_slug=server.slug %}" class="btn btn-sm btn-outline-primary">Join</a>
+    </div>
+</div>
+{% endfor %}
+{% endif %}
+
+<!-- Join by invite code modal -->
+<div class="modal fade" id="joinModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="get" action="{% url 'server_join' %}">
+                <div class="modal-header">
+                    <h5 class="modal-title">Join a Server</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <label class="form-label" for="inviteCode">Invite Code</label>
+                    <input type="text" class="form-control" id="inviteCode" name="code"
+                           placeholder="e.g. Ab3xK9mZ" required maxlength="8">
+                </div>
+                <div class="modal-footer">
+                    <button type="submit" class="btn btn-primary">Join</button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

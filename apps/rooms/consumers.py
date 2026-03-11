@@ -20,6 +20,9 @@ class RoomConsumer(AsyncWebsocketConsumer):
         await self.channel_layer.group_add(self.room_group, self.channel_name)
         await self.accept()
 
+        # Room is no longer empty
+        await self.clear_last_empty_at()
+
         # Tell this client its own channel name before the group broadcast
         await self.send(text_data=json.dumps({
             'type': 'my_channel',
@@ -45,6 +48,7 @@ class RoomConsumer(AsyncWebsocketConsumer):
             'seq': self.join_seq,
         })
         await self.remove_self()
+        await self.check_room_empty()
 
     async def receive(self, text_data):
         try:
@@ -168,3 +172,15 @@ class RoomConsumer(AsyncWebsocketConsumer):
             camera_device_id=camera_id,
             microphone_device_id=mic_id,
         )
+
+    @database_sync_to_async
+    def clear_last_empty_at(self):
+        Room.objects.filter(slug=self.room_slug).update(last_empty_at=None)
+
+    @database_sync_to_async
+    def check_room_empty(self):
+        from django.utils import timezone
+        room = Room.objects.filter(slug=self.room_slug, is_active=True).first()
+        if room and not RoomParticipant.objects.filter(room=room).exists():
+            room.last_empty_at = timezone.now()
+            room.save(update_fields=['last_empty_at'])

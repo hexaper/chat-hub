@@ -5,13 +5,13 @@
     <h2>{{ room.name }}</h2>
     <div>
         {% if is_host %}
-        <form method="post" action="{% url 'room_delete' room.slug %}" class="d-inline"
+        <form method="post" action="{% url 'room_delete' server_slug=server.slug slug=room.slug %}" class="d-inline"
               onsubmit="return confirm('Close this room for everyone?')">
             {% csrf_token %}
             <button class="btn btn-sm btn-danger me-2">Delete Room</button>
         </form>
         {% endif %}
-        <form method="post" action="{% url 'room_leave' room.slug %}" class="d-inline">
+        <form method="post" action="{% url 'room_leave' server_slug=server.slug slug=room.slug %}" class="d-inline">
             {% csrf_token %}
             <button class="btn btn-sm btn-outline-danger">Leave</button>
         </form>

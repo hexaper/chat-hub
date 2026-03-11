@@ -123,15 +123,23 @@ export DJANGO_SETTINGS_MODULE="config.settings.development"
 python manage.py migrate --noinput
 echo "  Migrations applied (SQLite)"
 
-echo "  Creating test users..."
+echo "  Creating test users and server..."
 python manage.py shell -c "
 from apps.accounts.models import User
+from apps.rooms.models import Server, ServerMember
 for name in ['test1', 'test2']:
     if not User.objects.filter(username=name).exists():
         User.objects.create_user(username=name, password='Heksaper12.')
         print(f'    Created: {name}')
     else:
         print(f'    Exists:  {name}')
+test1 = User.objects.get(username='test1')
+test2 = User.objects.get(username='test2')
+server, created = Server.objects.get_or_create(name='Test Server', defaults={'owner': test1, 'is_public': True})
+if created:
+    print('    Created Test Server')
+ServerMember.objects.get_or_create(server=server, user=test1)
+ServerMember.objects.get_or_create(server=server, user=test2)
 "
 
 # ── 5. Start dev server ──────────────────────────────────────────────────────

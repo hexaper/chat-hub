@@ -1,0 +1,44 @@
+{% extends 'base.html' %}
+{% block title %}{{ server.name }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+        <h2 class="mb-0">{{ server.name }}</h2>
+        {% if server.description %}
+        <p class="text-muted mb-0">{{ server.description }}</p>
+        {% endif %}
+        <small class="text-muted">{{ member_count }} member{{ member_count|pluralize }}</small>
+    </div>
+    <div>
+        <a href="{% url 'room_create' server_slug=server.slug %}" class="btn btn-primary">+ New Room</a>
+        <a href="{% url 'server_list' %}" class="btn btn-outline-secondary ms-2">Back</a>
+    </div>
+</div>
+
+{% if is_owner %}
+<div class="alert alert-info py-2">
+    <strong>Invite link:</strong>
+    <code id="inviteLink">{{ request.scheme }}://{{ request.get_host }}/servers/join/?code={{ server.invite_code }}</code>
+    <button class="btn btn-sm btn-outline-secondary ms-2" onclick="navigator.clipboard.writeText(document.getElementById('inviteLink').textContent).then(() => this.textContent = 'Copied!')">Copy</button>
+</div>
+{% endif %}
+
+<h4 class="mt-4 mb-3">Rooms</h4>
+{% for room in rooms %}
+<div class="card mb-2">
+    <div class="card-body d-flex justify-content-between align-items-center">
+        <div>
+            <strong>{{ room.name }}</strong>
+            {% if room.is_password_protected %}
+            <span class="ms-1" title="Password protected">🔒</span>
+            {% endif %}
+            <small class="text-muted ms-2">by {{ room.host.username }}</small>
+            <small class="text-muted ms-2">{{ room.participants.count }} in room</small>
+        </div>
+        <a href="{% url 'room_detail' server_slug=server.slug slug=room.slug %}" class="btn btn-sm btn-success">Join</a>
+    </div>
+</div>
+{% empty %}
+<p class="text-muted">No active rooms. Create one!</p>
+{% endfor %}
+{% endblock %}
