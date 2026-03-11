@@ -26,6 +26,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 RUN sed -i 's/\r$//' entrypoint.sh && chmod +x entrypoint.sh
 
+# Create media directories for uploads (avatars, etc.)
+RUN mkdir -p /app/mediafiles/server_avatars /app/mediafiles/avatars
+
 # Collect static files at build time
 RUN SECRET_KEY=build-placeholder \
     DJANGO_SETTINGS_MODULE=config.settings.production \
