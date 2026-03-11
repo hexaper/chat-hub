@@ -8,7 +8,6 @@ A peer-to-peer video conferencing app built with Django, Django Channels, and We
 - Real-time P2P video/audio via WebRTC
 - Camera and microphone selection
 - Mute mic / disable camera during calls
-- Host controls: mute or kick participants, delete room
 - Password-protected rooms
 - User accounts with avatar and bio
 - Voice activity detection (speaking indicator)
@@ -30,34 +29,23 @@ git clone <repo-url> && cd chat-hub
 docker compose up --build
 ```
 
-Open http://localhost:8000. Two test users are created automatically: `test1` / `test2` (password: `Heksaper12.`).
-
-### Single Container (for cloud hosting)
-
-```bash
-docker build -t chat-hub .
-docker run -p 8000:8000 chat-hub
-```
+Open http://localhost:8000. Two test users are created automatically (temporary solution): `test1` / `test2` (password: `Testing123.`).
 
 PostgreSQL and Redis are bundled inside the container. No external services needed.
 
-### Bare-Metal Production
+
+### Local Development
 
 ```bash
 sudo ./deploy.sh
 ```
 
-### Local Development
+Installs PostgreSQL, Redis, Nginx (reverse proxy with WebSocket support), and creates a systemd service running Daphne. Tested on Ubuntu 22.04/24.04 and Debian 12.
 
-Requires Redis running on `localhost:6379`.
 
 ```bash
-./start.sh
+sudo ./start.sh
 ```
-
-
-
-Installs PostgreSQL, Redis, Nginx (reverse proxy with WebSocket support), and creates a systemd service running Daphne. Tested on Ubuntu 22.04/24.04 and Debian 12.
 
 ## Environment Variables
 
@@ -103,18 +91,6 @@ User opens room
   -> Both exchange ICE candidates
   -> P2P connection established (STUN: stun.l.google.com:19302)
 ```
-
-## URL Routes
-
-| Path | Description |
-|---|---|
-| `/` | Room list |
-| `/rooms/create/` | Create a room |
-| `/rooms/<uuid>/` | Join / enter room |
-| `/accounts/register/` | Register |
-| `/accounts/login/` | Login |
-| `/devices/register/` | Register browser media device (JSON POST) |
-| `ws://.../ws/rooms/<uuid>/` | WebSocket signaling |
 
 ## License
 

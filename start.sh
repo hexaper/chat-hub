@@ -26,6 +26,4 @@ export DJANGO_SETTINGS_MODULE="${DJANGO_SETTINGS_MODULE:-config.settings.develop
 # Run migrations
 python manage.py migrate --noinput
 
-# Start Daphne
-echo "Starting server at http://0.0.0.0:8000"
-daphne -b 0.0.0.0 -p 8000 config.asgi:application
+python manage.py runserver
