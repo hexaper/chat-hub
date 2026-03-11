@@ -16,15 +16,11 @@ DATABASES = {
     }
 }
 
-_redis_url = os.environ.get('REDIS_URL', '')
-_redis_host = os.environ.get('REDIS_HOST', 'localhost')
-_redis_port = int(os.environ.get('REDIS_PORT', 6379))
-
 CHANNEL_LAYERS = {
     'default': {
         'BACKEND': 'channels_redis.core.RedisChannelLayer',
         'CONFIG': {
-            'hosts': [_redis_url] if _redis_url else [(_redis_host, _redis_port)],
+            'hosts': ['rediss://default:gQAAAAAAAQmvAAIncDFiZTE2NDA4Yjg0M2M0OWZlOTI2ZDBmNDkwNjdlMDU3NnAxNjgwMTU@magical-pangolin-68015.upstash.io:6379'],
         },
     },
 }

@@ -20,35 +20,6 @@ services:
     volumes:
       - media_files:/app/mediafiles
 
-  db:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    environment:
-      POSTGRES_DB: ${DB_NAME:-videocall}
-      POSTGRES_USER: ${DB_USER:-videocall}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-videocall}
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U videocall"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
-
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 10s
 
 volumes:
-  postgres_data:
-  redis_data:
   media_files:

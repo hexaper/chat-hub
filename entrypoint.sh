@@ -3,12 +3,6 @@ set -euo pipefail
 
 # ── Defaults ─────────────────────────────────────────────────────────────────
 export DJANGO_SETTINGS_MODULE="${DJANGO_SETTINGS_MODULE:-config.settings.production}"
-export DB_HOST="${DB_HOST:-localhost}"
-export DB_PORT="${DB_PORT:-5432}"
-export DB_NAME="${DB_NAME:-videocall}"
-export DB_USER="${DB_USER:-videocall}"
-export DB_PASSWORD="${DB_PASSWORD:-videocall}"
-export REDIS_HOST="${REDIS_HOST:-localhost}"
 export ALLOWED_HOSTS="${ALLOWED_HOSTS:-*}"
 export SECURE_SSL_REDIRECT="${SECURE_SSL_REDIRECT:-false}"
 
@@ -28,125 +22,33 @@ if [ -z "${SECRET_KEY:-}" ]; then
     fi
 fi
 
-# ── Start bundled PostgreSQL if DB_HOST is localhost ─────────────────────────
-if [ "$DB_HOST" = "localhost" ] || [ "$DB_HOST" = "127.0.0.1" ]; then
-    echo "Starting bundled PostgreSQL..."
-    PG_BIN="/usr/lib/postgresql/16/bin"
-    PG_DATA="/tmp/pgdata"
-    PG_RUN="/tmp/pgrun"
-    PG_LOG="/tmp/pg.log"
-
-    mkdir -p "$PG_DATA" "$PG_RUN"
-    chown -R postgres:postgres "$PG_DATA" "$PG_RUN" "$PG_LOG" 2>/dev/null || chown -R postgres "$PG_DATA" "$PG_RUN"
-
-    # Initialize DB cluster on first run
-    if [ ! -f "$PG_DATA/PG_VERSION" ]; then
-        su postgres -s /bin/sh -c "$PG_BIN/initdb -D $PG_DATA --auth=trust --no-locale --encoding=UTF8"
+# ── Wait for external PostgreSQL ─────────────────────────────────────────────
+echo "Waiting for Koyeb PostgreSQL..."
+for i in $(seq 1 60); do
+    if python -c "
+import socket, sys
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+try:
+    s.settimeout(5)
+    s.connect(('ep-misty-fog-alok1dzh.c-3.eu-central-1.pg.koyeb.app', 5432))
+    sys.exit(0)
+except Exception:
+    sys.exit(1)
+finally:
+    s.close()
+" 2>/dev/null; then
+        echo "  PostgreSQL ready"
+        break
     fi
-
-    # Configure to use /tmp sockets and listen on localhost
-    cat > "$PG_DATA/postgresql.conf" <<PGCONF
-listen_addresses = 'localhost'
-port = 5432
-unix_socket_directories = '$PG_RUN'
-shared_buffers = 128MB
-dynamic_shared_memory_type = posix
-max_connections = 50
-log_destination = 'stderr'
-logging_collector = off
-PGCONF
-
-    cat > "$PG_DATA/pg_hba.conf" <<PGHBA
-local   all   all                 trust
-host    all   all   127.0.0.1/32  trust
-host    all   all   ::1/128       trust
-PGHBA
-
-    chown postgres "$PG_DATA/postgresql.conf" "$PG_DATA/pg_hba.conf"
-
-    # Start PostgreSQL
-    su postgres -s /bin/sh -c "$PG_BIN/pg_ctl -D $PG_DATA -l $PG_LOG start -w -t 30" || {
-        echo "FATAL: PostgreSQL failed to start. Log output:" >&2
-        cat "$PG_LOG" >&2
+    if [ "$i" -eq 60 ]; then
+        echo "FATAL: PostgreSQL not reachable after 60s" >&2
         exit 1
-    }
+    fi
+    sleep 1
+done
 
-    # Create user and database if they don't exist
-    su postgres -s /bin/sh -c "$PG_BIN/psql -h $PG_RUN -p 5432 -d postgres -v ON_ERROR_STOP=1" <<SQL
-DO \$\$
-BEGIN
-    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '${DB_USER}') THEN
-        CREATE ROLE ${DB_USER} WITH LOGIN PASSWORD '$(echo "$DB_PASSWORD" | sed "s/'/''/g")';
-    END IF;
-END
-\$\$;
-SQL
-    su postgres -s /bin/sh -c "$PG_BIN/psql -h $PG_RUN -p 5432 -d postgres -tc \"SELECT 1 FROM pg_database WHERE datname='${DB_NAME}'\"" | grep -q 1 || \
-        su postgres -s /bin/sh -c "$PG_BIN/createdb -h $PG_RUN -p 5432 -O ${DB_USER} ${DB_NAME}"
-
-    # Django connects via localhost TCP
-    export DB_HOST="localhost"
-
-    echo "  PostgreSQL ready"
-else
-    # Wait for external PostgreSQL
-    echo "Waiting for PostgreSQL at ${DB_HOST}:${DB_PORT}..."
-    for i in $(seq 1 60); do
-        if python -c "
-import socket, sys
-s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-try:
-    s.settimeout(2)
-    s.connect(('${DB_HOST}', ${DB_PORT}))
-    sys.exit(0)
-except Exception:
-    sys.exit(1)
-finally:
-    s.close()
-" 2>/dev/null; then
-            echo "  PostgreSQL ready"
-            break
-        fi
-        if [ "$i" -eq 60 ]; then
-            echo "FATAL: PostgreSQL not reachable at ${DB_HOST}:${DB_PORT} after 60s" >&2
-            exit 1
-        fi
-        sleep 1
-    done
-fi
-
-# ── Start bundled Redis if REDIS_HOST is localhost (and no REDIS_URL) ────────
-if [ -n "${REDIS_URL:-}" ]; then
-    echo "Using external Redis via REDIS_URL"
-elif [ "$REDIS_HOST" = "localhost" ] || [ "$REDIS_HOST" = "127.0.0.1" ]; then
-    echo "Starting bundled Redis..."
-    redis-server --daemonize yes --dir /tmp --save ""
-    echo "  Redis ready"
-else
-    echo "Waiting for Redis at ${REDIS_HOST}:${REDIS_PORT:-6379}..."
-    for i in $(seq 1 60); do
-        if python -c "
-import socket, sys
-s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-try:
-    s.settimeout(2)
-    s.connect(('${REDIS_HOST}', ${REDIS_PORT:-6379}))
-    sys.exit(0)
-except Exception:
-    sys.exit(1)
-finally:
-    s.close()
-" 2>/dev/null; then
-            echo "  Redis ready"
-            break
-        fi
-        if [ "$i" -eq 60 ]; then
-            echo "FATAL: Redis not reachable at ${REDIS_HOST}:${REDIS_PORT:-6379} after 60s" >&2
-            exit 1
-        fi
-        sleep 1
-    done
-fi
+# ── Redis (Upstash — no wait needed, it's a managed service) ────────────────
+echo "Using Upstash Redis"
 
 # ── Django setup ─────────────────────────────────────────────────────────────
 echo "Running migrations..."
