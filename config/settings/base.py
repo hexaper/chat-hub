@@ -30,7 +30,6 @@ INSTALLED_APPS = [
     # Local
     'apps.accounts',
     'apps.rooms',
-    'apps.devices',
 ]
 
 MIDDLEWARE = [

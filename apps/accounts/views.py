@@ -51,9 +51,3 @@ def settings_view(request):
     else:
         form = ProfileForm(instance=request.user)
     return render(request, 'accounts/settings.html', {'form': form, 'tab': tab})
-
-
-# Keep old profile URL working as redirect
-@login_required
-def profile_view(request):
-    return redirect('settings')
