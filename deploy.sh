@@ -73,6 +73,18 @@ echo "  Found: $("$PYTHON" --version)"
 
 # ── 2. Virtual environment & dependencies ─────────────────────────────────────
 echo "[2/5] Setting up virtual environment..."
+
+# Ensure venv module is available (Debian/Ubuntu ship it separately)
+if ! "$PYTHON" -m venv --help &>/dev/null; then
+    echo "  Installing python3-venv..."
+    if command -v apt-get &>/dev/null; then
+        sudo apt-get update -qq && sudo apt-get install -y -qq python3-venv > /dev/null
+    else
+        echo "ERROR: Python venv module not found. Install python3-venv and retry."
+        exit 1
+    fi
+fi
+
 if [[ ! -d "venv" ]]; then
     "$PYTHON" -m venv venv
     echo "  Created venv/"

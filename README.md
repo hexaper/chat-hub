@@ -37,30 +37,9 @@ PostgreSQL and Redis are bundled inside the container. No external services need
 ### Local Development
 
 ```bash
-sudo ./deploy.sh
+chmod +x deploy.sh && ./deploy.sh
 ```
 
-Installs PostgreSQL, Redis, Nginx (reverse proxy with WebSocket support), and creates a systemd service running Daphne. Tested on Ubuntu 22.04/24.04 and Debian 12.
-
-
-```bash
-sudo ./start.sh
-```
-
-## Environment Variables
-
-| Variable | Default | Description |
-|---|---|---|
-| `SECRET_KEY` | auto-generated | Django secret key. Generated and persisted on first run if not set |
-| `DB_HOST` | `localhost` | PostgreSQL host. `localhost` = use bundled PG |
-| `DB_PORT` | `5432` | PostgreSQL port |
-| `DB_NAME` | `videocall` | Database name |
-| `DB_USER` | `videocall` | Database user |
-| `DB_PASSWORD` | `videocall` | Database password |
-| `REDIS_HOST` | `localhost` | Redis host. `localhost` = use bundled Redis |
-| `ALLOWED_HOSTS` | `*` | Comma-separated allowed hosts |
-| `SECURE_SSL_REDIRECT` | `false` | Set `true` if not behind a TLS-terminating proxy |
-| `CSRF_TRUSTED_ORIGINS` | derived from `ALLOWED_HOSTS` | Additional CSRF trusted origins |
 
 ## Project Structure
 
