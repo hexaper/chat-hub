@@ -20,4 +20,4 @@ class LoginForm(AuthenticationForm):
 class ProfileForm(forms.ModelForm):
     class Meta:
         model = User
-        fields = ('username', 'email', 'avatar', 'bio')
+        fields = ('email', 'avatar', 'bio')

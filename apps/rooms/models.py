@@ -1,13 +1,14 @@
 import uuid
 import string
-import random
+import secrets
 from django.db import models
 from django.conf import settings
 from django.contrib.auth.hashers import make_password, check_password
 
 
 def generate_invite_code():
-    return ''.join(random.choices(string.ascii_letters + string.digits, k=8))
+    alphabet = string.ascii_letters + string.digits
+    return ''.join(secrets.choice(alphabet) for _ in range(8))
 
 
 class Server(models.Model):

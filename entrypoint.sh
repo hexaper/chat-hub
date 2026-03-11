@@ -3,12 +3,12 @@ set -euo pipefail
 
 # ── Defaults ─────────────────────────────────────────────────────────────────
 export DJANGO_SETTINGS_MODULE="${DJANGO_SETTINGS_MODULE:-config.settings.production}"
-export ALLOWED_HOSTS="${ALLOWED_HOSTS:-*}"
+export ALLOWED_HOSTS="${ALLOWED_HOSTS:?ALLOWED_HOSTS must be set}"
 export SECURE_SSL_REDIRECT="${SECURE_SSL_REDIRECT:-false}"
 
 # ── Fix volume permissions ───────────────────────────────────────────────────
 mkdir -p /app/mediafiles/server_avatars /app/mediafiles/avatars
-chmod -R 777 /app/mediafiles
+chmod -R u+rwX,go+rX /app/mediafiles
 
 # ── SECRET_KEY: use env var, or generate once and persist ────────────────────
 SECRET_KEY_FILE="/app/mediafiles/.secret_key"
@@ -59,9 +59,13 @@ from apps.accounts.models import User
 import os
 pw = os.environ['ADMIN_USER_PASSWORD']
 if not User.objects.filter(username='admin').exists():
-    User.objects.create_user(username='admin', password=pw)
+    User.objects.create_user(username='admin', password=pw, is_staff=True)
     print('  Created user: admin')
 else:
+    u = User.objects.get(username='admin')
+    if not u.is_staff:
+        u.is_staff = True
+        u.save(update_fields=['is_staff'])
     print('  User admin already exists')
 "
 fi

@@ -85,9 +85,14 @@ class ServerChatConsumer(AsyncWebsocketConsumer):
 
     @database_sync_to_async
     def is_member(self):
-        return ServerMember.objects.filter(
-            server__slug=self.server_slug, user=self.user
-        ).exists()
+        try:
+            membership = ServerMember.objects.select_related('server').get(
+                server__slug=self.server_slug, user=self.user
+            )
+            self.server_id = membership.server_id
+            return True
+        except ServerMember.DoesNotExist:
+            return False
 
     @staticmethod
     def _avatar_url(user):
@@ -116,7 +121,7 @@ class ServerChatConsumer(AsyncWebsocketConsumer):
     def get_image_message(self, message_id):
         try:
             msg = ChatMessage.objects.select_related('user').get(
-                id=message_id, server__slug=self.server_slug, user=self.user
+                id=message_id, server_id=self.server_id, user=self.user
             )
         except ChatMessage.DoesNotExist:
             return None
@@ -131,9 +136,8 @@ class ServerChatConsumer(AsyncWebsocketConsumer):
 
     @database_sync_to_async
     def save_message(self, content):
-        server = Server.objects.get(slug=self.server_slug)
         msg = ChatMessage.objects.create(
-            server=server, user=self.user, content=content[:2000]
+            server_id=self.server_id, user=self.user, content=content[:2000]
         )
         return {
             'id': msg.id,

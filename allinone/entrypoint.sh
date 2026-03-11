@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ── Defaults ─────────────────────────────────────────────────────────────────
 export DJANGO_SETTINGS_MODULE="${DJANGO_SETTINGS_MODULE:-config.settings.allinone}"
-export ALLOWED_HOSTS="${ALLOWED_HOSTS:-*}"
+export ALLOWED_HOSTS="${ALLOWED_HOSTS:-localhost}"
 export SECURE_SSL_REDIRECT="${SECURE_SSL_REDIRECT:-false}"
 export DB_NAME="${DB_NAME:-videocall}"
 export DB_USER="${DB_USER:-videocall}"
@@ -11,7 +11,7 @@ export DB_PASSWORD="${DB_PASSWORD:-videocall}"
 
 # ── Fix volume permissions ───────────────────────────────────────────────────
 mkdir -p /app/mediafiles/server_avatars /app/mediafiles/avatars
-chmod -R 777 /app/mediafiles
+chmod -R u+rwX,go+rX /app/mediafiles
 
 # ── SECRET_KEY: use env var, or generate once and persist ────────────────────
 SECRET_KEY_FILE="/app/mediafiles/.secret_key"
@@ -40,7 +40,7 @@ chown postgres "$PG_LOG"
 
 # Initialize DB cluster on first run
 if [ ! -f "$PG_DATA/PG_VERSION" ]; then
-    su postgres -s /bin/sh -c "$PG_BIN/initdb -D $PG_DATA --auth=trust --no-locale --encoding=UTF8"
+    su postgres -s /bin/sh -c "$PG_BIN/initdb -D $PG_DATA --auth=peer --no-locale --encoding=UTF8"
 fi
 
 # Configure to use /tmp sockets and listen on localhost
@@ -56,9 +56,10 @@ logging_collector = off
 PGCONF
 
 cat > "$PG_DATA/pg_hba.conf" <<PGHBA
-local   all   all                 trust
-host    all   all   127.0.0.1/32  trust
-host    all   all   ::1/128       trust
+local   all   postgres            peer
+local   all   all                 scram-sha-256
+host    all   all   127.0.0.1/32  scram-sha-256
+host    all   all   ::1/128       scram-sha-256
 PGHBA
 
 chown postgres "$PG_DATA/postgresql.conf" "$PG_DATA/pg_hba.conf"
