@@ -14,8 +14,8 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST as require_post_method
 from PIL import Image
 
-from .models import Server, ServerMember, Room, RoomParticipant, ChatMessage
-from .forms import ServerForm, ServerSettingsForm, RoomForm, RoomPasswordForm
+from .models import Server, ServerMember, Room, RoomParticipant, ChatMessage, Device
+from .forms import ServerForm, RoomForm, RoomPasswordForm
 
 User = get_user_model()
 
@@ -121,13 +121,13 @@ def server_settings(request, server_slug):
     members = ServerMember.objects.filter(server=server).select_related('user').order_by('joined_at')
 
     if request.method == 'POST':
-        form = ServerSettingsForm(request.POST, request.FILES, instance=server)
+        form = ServerForm(request.POST, request.FILES, instance=server)
         if form.is_valid():
             form.save()
             messages.success(request, 'Server settings updated.')
             return redirect('server_settings', server_slug=server.slug)
     else:
-        form = ServerSettingsForm(instance=server)
+        form = ServerForm(instance=server)
 
     return render(request, 'rooms/server_settings.html', {
         'server': server,
@@ -396,3 +396,40 @@ def admin_delete_user(request, user_id):
         user.delete()
         messages.success(request, f'User "{username}" deleted.')
     return redirect('admin_panel')
+
+
+# ── Device views ─────────────────────────────────────────────────────────────
+
+@login_required
+@require_post_method
+def register_device(request):
+    import json as _json
+    try:
+        data = _json.loads(request.body)
+    except _json.JSONDecodeError:
+        return JsonResponse({'error': 'Invalid JSON'}, status=400)
+
+    device_id = str(data.get('deviceId', '')).strip()[:255]
+    device_type = data.get('deviceType', '')
+    if not device_id or device_type not in ('camera', 'microphone'):
+        return JsonResponse({'error': 'Missing or invalid fields'}, status=400)
+
+    device, created = Device.objects.update_or_create(
+        user=request.user,
+        device_id=device_id,
+        defaults={
+            'label': str(data.get('label', ''))[:255],
+            'device_type': device_type,
+        }
+    )
+    return JsonResponse({'id': device.id, 'created': created})
+
+
+@login_required
+@require_post_method
+def set_default_device(request, pk):
+    device = get_object_or_404(Device, pk=pk, user=request.user)
+    Device.objects.filter(user=request.user, device_type=device.device_type).update(is_default=False)
+    device.is_default = True
+    device.save()
+    return JsonResponse({'status': 'ok'})
