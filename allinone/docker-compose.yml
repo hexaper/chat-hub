@@ -1,0 +1,23 @@
+services:
+  web:
+    build:
+      context: ..
+      dockerfile: allinone/Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - path: ../.env
+        required: false
+    restart: unless-stopped
+    environment:
+      DB_NAME: ${DB_NAME:-videocall}
+      DB_USER: ${DB_USER:-videocall}
+      DB_PASSWORD: ${DB_PASSWORD:-videocall}
+      TEST_USER_PASSWORD: ${TEST_USER_PASSWORD:-}
+    volumes:
+      - media_files:/app/mediafiles
+      - pg_data:/tmp/pgdata
+
+volumes:
+  media_files:
+  pg_data:

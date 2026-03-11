@@ -8,10 +8,10 @@ SECRET_KEY = os.environ['SECRET_KEY']
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'koyebdb',
-        'USER': 'koyeb-adm',
-        'PASSWORD': 'npg_nDIwW9eE6jxA',
-        'HOST': 'ep-misty-fog-alok1dzh.c-3.eu-central-1.pg.koyeb.app',
+        'NAME': os.environ['POSTGRES_NAME'],
+        'USER': os.environ['POSTGRES_USER'],
+        'PASSWORD': os.environ['POSTGRES_PASS'],
+        'HOST': os.environ['POSTGRES_HOST'],
         'OPTIONS': {'sslmode': 'require'},
     }
 }
@@ -20,7 +20,7 @@ CHANNEL_LAYERS = {
     'default': {
         'BACKEND': 'channels_redis.core.RedisChannelLayer',
         'CONFIG': {
-            'hosts': ['rediss://default:gQAAAAAAAQmvAAIncDFiZTE2NDA4Yjg0M2M0OWZlOTI2ZDBmNDkwNjdlMDU3NnAxNjgwMTU@magical-pangolin-68015.upstash.io:6379'],
+            'hosts': [os.environ['REDIS_HOST']],
         },
     },
 }
@@ -28,28 +28,14 @@ CHANNEL_LAYERS = {
 # Static files — served by whitenoise
 MIDDLEWARE.insert(1, 'whitenoise.middleware.WhiteNoiseMiddleware')
 STORAGES = {
+    'default': {
+        'BACKEND': 'django.core.files.storage.FileSystemStorage',
+    },
     'staticfiles': {
         'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
     },
 }
 
-# S3-compatible media storage (for avatars etc.)
-if os.environ.get('AWS_STORAGE_BUCKET_NAME'):
-    STORAGES['default'] = {
-        'BACKEND': 'storages.backends.s3boto3.S3Boto3Storage',
-    }
-    AWS_STORAGE_BUCKET_NAME = os.environ['AWS_STORAGE_BUCKET_NAME']
-    AWS_S3_REGION_NAME = os.environ.get('AWS_S3_REGION_NAME', 'auto')
-    AWS_S3_ENDPOINT_URL = os.environ.get('AWS_S3_ENDPOINT_URL', '')
-    AWS_ACCESS_KEY_ID = os.environ.get('AWS_ACCESS_KEY_ID', '')
-    AWS_SECRET_ACCESS_KEY = os.environ.get('AWS_SECRET_ACCESS_KEY', '')
-    AWS_S3_CUSTOM_DOMAIN = os.environ.get('AWS_S3_CUSTOM_DOMAIN', '')
-    AWS_DEFAULT_ACL = 'public-read'
-    AWS_QUERYSTRING_AUTH = False
-    if AWS_S3_CUSTOM_DOMAIN:
-        MEDIA_URL = f'https://{AWS_S3_CUSTOM_DOMAIN}/'
-    elif AWS_S3_ENDPOINT_URL:
-        MEDIA_URL = f'{AWS_S3_ENDPOINT_URL}/{AWS_STORAGE_BUCKET_NAME}/'
 
 # Trust proxy headers (Koyeb, Railway, etc. terminate TLS at the load balancer)
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')

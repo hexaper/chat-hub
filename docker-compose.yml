@@ -7,19 +7,18 @@ services:
       - path: .env
         required: false
     restart: unless-stopped
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
     environment:
-      DB_HOST: db
-      REDIS_HOST: redis
-    links:
-      - db
+      POSTGRES_HOST: ${POSTGRES_HOST}
+      POSTGRES_NAME: ${POSTGRES_NAME}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASS: ${POSTGRES_PASS}
+      REDIS_HOST: ${REDIS_HOST}
+      SECRET_KEY: ${SECRET_KEY}
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:-*}
+      SECURE_SSL_REDIRECT: ${SECURE_SSL_REDIRECT:-false}
+      TEST_USER_PASSWORD: ${TEST_USER_PASSWORD:-}
     volumes:
       - media_files:/app/mediafiles
-
 
 volumes:
   media_files:

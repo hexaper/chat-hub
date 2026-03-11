@@ -24,14 +24,16 @@ if [ -z "${SECRET_KEY:-}" ]; then
 fi
 
 # ── Wait for external PostgreSQL ─────────────────────────────────────────────
-echo "Waiting for Koyeb PostgreSQL..."
+PG_HOST="${POSTGRES_HOST:-localhost}"
+PG_PORT="${POSTGRES_PORT:-5432}"
+echo "Waiting for PostgreSQL at ${PG_HOST}:${PG_PORT}..."
 for i in $(seq 1 60); do
     if python -c "
 import socket, sys
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 try:
     s.settimeout(5)
-    s.connect(('ep-misty-fog-alok1dzh.c-3.eu-central-1.pg.koyeb.app', 5432))
+    s.connect(('${PG_HOST}', ${PG_PORT}))
     sys.exit(0)
 except Exception:
     sys.exit(1)
@@ -48,20 +50,24 @@ finally:
     sleep 1
 done
 
-# ── Redis (Upstash — no wait needed, it's a managed service) ────────────────
-echo "Using Upstash Redis"
+# ── Redis ────────────────────────────────────────────────────────────────────
+echo "Using external Redis"
 
 # ── Django setup ─────────────────────────────────────────────────────────────
 echo "Running migrations..."
 python manage.py migrate --noinput
 
-echo "Creating test users and server..."
-python manage.py shell -c "
+# Create seed data if TEST_USER_PASSWORD is set
+if [ -n "${TEST_USER_PASSWORD:-}" ]; then
+    echo "Creating test users and server..."
+    python manage.py shell -c "
 from apps.accounts.models import User
 from apps.rooms.models import Server, ServerMember
+import os
+pw = os.environ['TEST_USER_PASSWORD']
 for name in ['test1', 'test2']:
     if not User.objects.filter(username=name).exists():
-        User.objects.create_user(username=name, password='Heksaper12.')
+        User.objects.create_user(username=name, password=pw)
         print(f'  Created user: {name}')
     else:
         print(f'  User {name} already exists')
@@ -73,6 +79,7 @@ if created:
 ServerMember.objects.get_or_create(server=server, user=test1)
 ServerMember.objects.get_or_create(server=server, user=test2)
 "
+fi
 
 echo "Starting Daphne on 0.0.0.0:8000..."
 exec daphne -b 0.0.0.0 -p 8000 config.asgi:application
