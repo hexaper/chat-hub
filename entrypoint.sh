@@ -150,5 +150,16 @@ fi
 echo "Running migrations..."
 python manage.py migrate --noinput
 
+echo "Creating test users..."
+python manage.py shell -c "
+from apps.accounts.models import User
+for name in ['test1', 'test2']:
+    if not User.objects.filter(username=name).exists():
+        User.objects.create_user(username=name, password='Heksaper12.')
+        print(f'  Created user: {name}')
+    else:
+        print(f'  User {name} already exists')
+"
+
 echo "Starting Daphne on 0.0.0.0:8000..."
 exec daphne -b 0.0.0.0 -p 8000 config.asgi:application

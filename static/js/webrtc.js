@@ -258,12 +258,19 @@ function connectWebSocket(cameraId, micId) {
             // If this user was previously connected with a different channel, clean up the old peer
             const oldChannel = userChannels[msg.username];
             if (oldChannel && oldChannel !== msg.channel) {
+                console.log(`[WS] ${msg.username} rejoined with new channel, cleaning old peer`);
                 removePeer(oldChannel);
             }
             userSeqs[msg.username] = msg.seq;
             userChannels[msg.username] = msg.channel;
             addParticipantToList(msg.username);
-            if (msg.channel !== myChannel) await createOffer(msg.channel, msg.username);
+            if (msg.channel !== myChannel) {
+                try {
+                    await createOffer(msg.channel, msg.username);
+                } catch (e) {
+                    console.error('[WebRTC] createOffer failed:', e);
+                }
+            }
 
         } else if (msg.type === 'user_left') {
             // Only remove if this event matches the current known session
@@ -278,12 +285,24 @@ function connectWebSocket(cameraId, micId) {
             removePeer(msg.channel);
 
         } else if (msg.type === 'offer') {
-            await handleOffer(msg.payload, msg.sender, msg.username);
+            try {
+                await handleOffer(msg.payload, msg.sender, msg.username);
+            } catch (e) {
+                console.error('[WebRTC] handleOffer failed:', e);
+            }
         } else if (msg.type === 'answer') {
             const pc = peers[msg.sender];
             if (pc) {
-                await pc.setRemoteDescription(msg.payload);
-                await drainCandidates(msg.sender);
+                try {
+                    await pc.setRemoteDescription(msg.payload);
+                    await drainCandidates(msg.sender);
+                    console.log(`[WebRTC] Answer set for ${msg.username}, transceivers:`,
+                        pc.getTransceivers().map(t => `${t.mid}:${t.direction}/${t.currentDirection}`));
+                } catch (e) {
+                    console.error('[WebRTC] setRemoteDescription(answer) failed:', e);
+                }
+            } else {
+                console.warn('[WebRTC] No peer for answer from', msg.sender);
             }
         } else if (msg.type === 'ice-candidate') {
             const pc = peers[msg.sender];
@@ -330,7 +349,7 @@ async function drainCandidates(channel) {
 }
 
 // ── WebRTC helpers ──────────────────────────────────────────────────────────
-function createPeerConnection(targetChannel, username) {
+function setupPeerConnection(targetChannel, username) {
     // Close any existing connection for this channel before creating a new one
     if (peers[targetChannel]) {
         console.warn(`[WebRTC] Replacing existing peer for channel ${targetChannel}`);
@@ -340,21 +359,19 @@ function createPeerConnection(targetChannel, username) {
     const pc = new RTCPeerConnection(ICE_SERVERS);
     peers[targetChannel] = pc;
 
-    // Add audio and video as independent transceivers with no shared stream.
-    const audioTrack = localStream.getAudioTracks()[0];
-    if (audioTrack) pc.addTransceiver(audioTrack, { direction: 'sendrecv' });
-
-    const videoTrack = cameraEnabled ? localStream.getVideoTracks()[0] : getBlackVideoTrack();
-    if (videoTrack) pc.addTransceiver(videoTrack, { direction: 'sendrecv' });
-
     pc.onicecandidate = ({ candidate }) => {
         if (candidate) {
             socket.send(JSON.stringify({ type: 'ice-candidate', target: targetChannel, payload: candidate }));
         }
     };
 
+    pc.oniceconnectionstatechange = () => {
+        console.log(`[WebRTC] ICE state for ${username}: ${pc.iceConnectionState}`);
+    };
+
     remoteStreams[targetChannel] = new MediaStream();
     pc.ontrack = ({ track }) => {
+        console.log(`[WebRTC] ontrack: ${track.kind} from ${username} (${targetChannel})`);
         remoteStreams[targetChannel].addTrack(track);
         if (track.kind === 'video') {
             addRemoteVideo(targetChannel, username, remoteStreams[targetChannel]);
@@ -372,19 +389,53 @@ function createPeerConnection(targetChannel, username) {
     return pc;
 }
 
+function addLocalTracks(pc) {
+    const audioTrack = localStream.getAudioTracks()[0];
+    if (audioTrack) pc.addTrack(audioTrack, localStream);
+
+    const videoTrack = cameraEnabled ? localStream.getVideoTracks()[0] : getBlackVideoTrack();
+    if (videoTrack) pc.addTrack(videoTrack, localStream);
+}
+
 async function createOffer(targetChannel, username) {
-    const pc = createPeerConnection(targetChannel, username);
+    console.log(`[WebRTC] Creating offer for ${username} (${targetChannel})`);
+    const pc = setupPeerConnection(targetChannel, username);
+    addLocalTracks(pc);
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
+    console.log(`[WebRTC] Offer created, sending to ${username}`);
     socket.send(JSON.stringify({ type: 'offer', target: targetChannel, payload: offer }));
 }
 
 async function handleOffer(offer, senderChannel, username) {
-    const pc = createPeerConnection(senderChannel, username);
+    const pc = setupPeerConnection(senderChannel, username);
+
+    // Set remote description FIRST — this creates transceivers from the offer
     await pc.setRemoteDescription(offer);
+
+    // Now attach our local tracks to the transceivers created by the offer
+    for (const transceiver of pc.getTransceivers()) {
+        const kind = transceiver.receiver.track?.kind;
+        if (kind === 'audio') {
+            const audioTrack = localStream.getAudioTracks()[0];
+            if (audioTrack) {
+                await transceiver.sender.replaceTrack(audioTrack);
+                transceiver.direction = 'sendrecv';
+            }
+        } else if (kind === 'video') {
+            const videoTrack = cameraEnabled ? localStream.getVideoTracks()[0] : getBlackVideoTrack();
+            if (videoTrack) {
+                await transceiver.sender.replaceTrack(videoTrack);
+                transceiver.direction = 'sendrecv';
+            }
+        }
+    }
+
     await drainCandidates(senderChannel);
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
+    console.log(`[WebRTC] Sending answer to ${username}, transceivers:`,
+        pc.getTransceivers().map(t => `${t.mid}:${t.direction}/${t.currentDirection}`));
     socket.send(JSON.stringify({ type: 'answer', target: senderChannel, payload: answer }));
 }
 
