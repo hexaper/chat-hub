@@ -27,31 +27,38 @@ CHANNEL_LAYERS = {
 
 # Static files — served by whitenoise
 MIDDLEWARE.insert(1, 'whitenoise.middleware.WhiteNoiseMiddleware')
+_s3_region = os.environ.get('AWS_S3_REGION_NAME', 'us-east-1')
+_s3_bucket = os.environ['AWS_STORAGE_BUCKET_NAME']
+_s3_endpoint = os.environ.get('AWS_S3_ENDPOINT_URL') or None
+_s3_custom_domain = os.environ.get('AWS_S3_CUSTOM_DOMAIN') or None
+
 STORAGES = {
     'default': {
         'BACKEND': 'storages.backends.s3boto3.S3Boto3Storage',
+        'OPTIONS': {
+            'bucket_name': _s3_bucket,
+            'region_name': _s3_region,
+            'endpoint_url': _s3_endpoint,
+            'custom_domain': _s3_custom_domain,
+            'default_acl': 'public-read',
+            'querystring_auth': False,
+            'signature_version': 's3v4',
+        },
     },
     'staticfiles': {
         'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
     },
 }
 
-# S3 media storage (avatars, uploads)
-AWS_STORAGE_BUCKET_NAME = os.environ['AWS_STORAGE_BUCKET_NAME']
-AWS_S3_REGION_NAME = os.environ.get('AWS_S3_REGION_NAME', 'us-east-1')
+# S3 credentials
 AWS_ACCESS_KEY_ID = os.environ['AWS_ACCESS_KEY_ID']
 AWS_SECRET_ACCESS_KEY = os.environ['AWS_SECRET_ACCESS_KEY']
-AWS_S3_ENDPOINT_URL = os.environ.get('AWS_S3_ENDPOINT_URL') or None  # for R2/MinIO
-AWS_S3_CUSTOM_DOMAIN = os.environ.get('AWS_S3_CUSTOM_DOMAIN') or None
-AWS_DEFAULT_ACL = None
-AWS_QUERYSTRING_AUTH = True
+AWS_S3_REGION_NAME = _s3_region
 
-if AWS_S3_CUSTOM_DOMAIN:
-    MEDIA_URL = f'https://{AWS_S3_CUSTOM_DOMAIN}/'
-elif AWS_S3_ENDPOINT_URL:
-    MEDIA_URL = f'{AWS_S3_ENDPOINT_URL}/{AWS_STORAGE_BUCKET_NAME}/'
+if _s3_custom_domain:
+    MEDIA_URL = f'https://{_s3_custom_domain}/'
 else:
-    MEDIA_URL = f'https://{AWS_STORAGE_BUCKET_NAME}.s3.amazonaws.com/'
+    MEDIA_URL = f'https://{_s3_bucket}.s3.{_s3_region}.amazonaws.com/'
 
 
 # Trust proxy headers (Koyeb, Railway, etc. terminate TLS at the load balancer)
