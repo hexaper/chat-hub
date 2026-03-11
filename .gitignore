@@ -7,6 +7,7 @@ build/
 *.sqlite3
 staticfiles/
 mediafiles/
+.secret_key
 .venv/
 venv/
 node_modules/

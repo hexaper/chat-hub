@@ -2,8 +2,18 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
-import secrets as _secrets
-SECRET_KEY = _secrets.token_hex(50)
+import os as _os
+
+def _get_or_create_secret_key():
+    key_file = BASE_DIR / '.secret_key'
+    if key_file.exists():
+        return key_file.read_text().strip()
+    import secrets
+    key = secrets.token_hex(50)
+    key_file.write_text(key)
+    return key
+
+SECRET_KEY = _os.environ.get('SECRET_KEY') or _get_or_create_secret_key()
 
 INSTALLED_APPS = [
     'daphne',
