@@ -8,6 +8,7 @@ export SECURE_SSL_REDIRECT="${SECURE_SSL_REDIRECT:-false}"
 
 # ── Fix volume permissions ───────────────────────────────────────────────────
 mkdir -p /app/mediafiles/server_avatars /app/mediafiles/avatars
+chmod -R 777 /app/mediafiles
 
 # ── SECRET_KEY: use env var, or generate once and persist ────────────────────
 SECRET_KEY_FILE="/app/mediafiles/.secret_key"
