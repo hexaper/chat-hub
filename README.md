@@ -1,4 +1,5 @@
 # Chat Hub
+<img width="1280" height="720" alt="project-banner" src="https://github.com/user-attachments/assets/599a6818-cb3e-44d2-87c7-84d3822363c3" />
 
 A real-time video conferencing and chat platform built with Django, Django Channels, and WebRTC. Users create and join servers (similar to Discord), start video rooms with peer-to-peer calls, and communicate through real-time text chat with image support.
 
