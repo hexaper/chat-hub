@@ -3,7 +3,7 @@ set -euo pipefail
 
 # ── Defaults ─────────────────────────────────────────────────────────────────
 export DJANGO_SETTINGS_MODULE="${DJANGO_SETTINGS_MODULE:-config.settings.allinone}"
-export ALLOWED_HOSTS="${ALLOWED_HOSTS:-localhost}"
+export ALLOWED_HOSTS="${ALLOWED_HOSTS:-*}"
 export SECURE_SSL_REDIRECT="${SECURE_SSL_REDIRECT:-false}"
 export DB_NAME="${DB_NAME:-videocall}"
 export DB_USER="${DB_USER:-videocall}"
