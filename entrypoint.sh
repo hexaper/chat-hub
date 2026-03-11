@@ -115,20 +115,22 @@ finally:
     done
 fi
 
-# ── Start bundled Redis if REDIS_HOST is localhost ───────────────────────────
-if [ "$REDIS_HOST" = "localhost" ] || [ "$REDIS_HOST" = "127.0.0.1" ]; then
+# ── Start bundled Redis if REDIS_HOST is localhost (and no REDIS_URL) ────────
+if [ -n "${REDIS_URL:-}" ]; then
+    echo "Using external Redis via REDIS_URL"
+elif [ "$REDIS_HOST" = "localhost" ] || [ "$REDIS_HOST" = "127.0.0.1" ]; then
     echo "Starting bundled Redis..."
     redis-server --daemonize yes --dir /tmp --save ""
     echo "  Redis ready"
 else
-    echo "Waiting for Redis at ${REDIS_HOST}:6379..."
+    echo "Waiting for Redis at ${REDIS_HOST}:${REDIS_PORT:-6379}..."
     for i in $(seq 1 60); do
         if python -c "
 import socket, sys
 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 try:
     s.settimeout(2)
-    s.connect(('${REDIS_HOST}', 6379))
+    s.connect(('${REDIS_HOST}', ${REDIS_PORT:-6379}))
     sys.exit(0)
 except Exception:
     sys.exit(1)
@@ -139,7 +141,7 @@ finally:
             break
         fi
         if [ "$i" -eq 60 ]; then
-            echo "FATAL: Redis not reachable at ${REDIS_HOST}:6379 after 60s" >&2
+            echo "FATAL: Redis not reachable at ${REDIS_HOST}:${REDIS_PORT:-6379} after 60s" >&2
             exit 1
         fi
         sleep 1
