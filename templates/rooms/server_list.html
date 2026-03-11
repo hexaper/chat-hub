@@ -4,9 +4,13 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
     <h2>My Servers</h2>
-    <div>
-        <button class="btn btn-outline-primary me-2" data-bs-toggle="modal" data-bs-target="#joinModal">Join Server</button>
-        <a href="{% url 'server_create' %}" class="btn btn-primary">+ New Server</a>
+    <div class="d-flex gap-2">
+        <button class="btn btn-outline-primary" data-bs-toggle="modal" data-bs-target="#joinModal">
+            <i class="bi bi-link-45deg"></i> Join
+        </button>
+        <a href="{% url 'server_create' %}" class="btn btn-primary">
+            <i class="bi bi-plus-lg"></i> New Server
+        </a>
     </div>
 </div>
 
@@ -24,10 +28,10 @@
                     </div>
                     {% endif %}
                 </div>
-                <div class="card-body p-2">
+                <div class="card-body">
                     <h6 class="card-title mb-1 text-body">{{ server.name }}</h6>
                     {% if server.description %}
-                    <p class="card-text text-muted small mb-1">{{ server.description|truncatewords:12 }}</p>
+                    <p class="card-text small mb-1" style="color:var(--text-muted)">{{ server.description|truncatewords:12 }}</p>
                     {% endif %}
                     <div>
                         {% if server.is_public %}
@@ -42,13 +46,16 @@
     </div>
     {% empty %}
     <div class="col-12">
-        <p class="text-muted">You haven't joined any servers yet. Create one or join with an invite code!</p>
+        <div class="text-center py-5" style="color:var(--text-muted)">
+            <i class="bi bi-collection" style="font-size:3rem"></i>
+            <p class="mt-3 mb-0">You haven't joined any servers yet.<br>Create one or join with an invite code!</p>
+        </div>
     </div>
     {% endfor %}
 </div>
 
 {% if public_servers %}
-<h2 class="mb-3">Public Servers</h2>
+<h2 class="mb-3">Discover</h2>
 <div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-lg-4 g-3">
     {% for server in public_servers %}
     <div class="col">
@@ -63,12 +70,12 @@
                     </div>
                     {% endif %}
                 </div>
-                <div class="card-body p-2">
+                <div class="card-body">
                     <h6 class="card-title mb-1 text-body">{{ server.name }}</h6>
                     {% if server.description %}
-                    <p class="card-text text-muted small mb-1">{{ server.description|truncatewords:12 }}</p>
+                    <p class="card-text small mb-1" style="color:var(--text-muted)">{{ server.description|truncatewords:12 }}</p>
                     {% endif %}
-                    <small class="text-muted">by {{ server.owner.username }}</small>
+                    <small style="color:var(--text-muted)">by {{ server.owner.username }}</small>
                 </div>
             </div>
         </a>
@@ -77,12 +84,12 @@
 </div>
 {% endif %}
 
-<!-- Join by invite code modal -->
+<!-- Join modal -->
 <div class="modal fade" id="joinModal" tabindex="-1">
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
             <form method="get" action="{% url 'server_join' %}">
-                <div class="modal-header">
+                <div class="modal-header border-0 pb-0">
                     <h5 class="modal-title">Join a Server</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
@@ -91,8 +98,9 @@
                     <input type="text" class="form-control" id="inviteCode" name="code"
                            placeholder="e.g. Ab3xK9mZ" required maxlength="8">
                 </div>
-                <div class="modal-footer">
-                    <button type="submit" class="btn btn-primary">Join</button>
+                <div class="modal-footer border-0 pt-0">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button type="submit" class="btn btn-primary">Join Server</button>
                 </div>
             </form>
         </div>

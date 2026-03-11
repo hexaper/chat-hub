@@ -3,20 +3,20 @@
 {% load static %}
 {% block title %}Settings{% endblock %}
 {% block content %}
-<h2 class="mb-4">Settings</h2>
+<h2 class="mb-4"><i class="bi bi-gear me-2"></i>Settings</h2>
 
 <!-- Tabs -->
 <ul class="nav nav-tabs mb-4" role="tablist">
     <li class="nav-item">
         <a class="nav-link {% if tab == 'account' %}active{% endif %}" href="?tab=account"
            id="account-tab" data-bs-toggle="tab" data-bs-target="#accountPane" role="tab">
-            <i class="bi bi-person"></i> Account
+            <i class="bi bi-person me-1"></i>Account
         </a>
     </li>
     <li class="nav-item">
         <a class="nav-link {% if tab == 'media' %}active{% endif %}" href="?tab=media"
            id="media-tab" data-bs-toggle="tab" data-bs-target="#mediaPane" role="tab">
-            <i class="bi bi-camera-video"></i> Camera & Audio
+            <i class="bi bi-camera-video me-1"></i>Camera & Audio
         </a>
     </li>
 </ul>
@@ -24,56 +24,74 @@
 <div class="tab-content">
     <!-- ── Account tab ──────────────────────────────────────────── -->
     <div class="tab-pane fade {% if tab == 'account' %}show active{% endif %}" id="accountPane" role="tabpanel">
-        <div class="row">
+        <div class="row justify-content-center">
             <div class="col-md-6">
-                {% if request.user.avatar %}
-                <div class="mb-3">
-                    <img src="{{ request.user.avatar.url }}" alt="Avatar"
-                         class="rounded-circle" style="width:80px;height:80px;object-fit:cover">
+                <div class="card">
+                    <div class="card-header"><i class="bi bi-person-circle me-2"></i>Profile</div>
+                    <div class="card-body">
+                        {% if request.user.avatar %}
+                        <div class="mb-3 text-center">
+                            <img src="{{ request.user.avatar.url }}" alt="Avatar"
+                                 class="rounded-circle"
+                                 style="width:80px;height:80px;object-fit:cover;border:3px solid var(--border-color)">
+                        </div>
+                        {% else %}
+                        <div class="mb-3 text-center">
+                            <div style="width:80px;height:80px;border-radius:50%;background:var(--bg-hover);display:inline-flex;align-items:center;justify-content:center;font-size:2rem;color:var(--text-muted);border:3px solid var(--border-color)">
+                                {{ request.user.username|truncatechars:1 }}
+                            </div>
+                        </div>
+                        {% endif %}
+                        <form method="post" enctype="multipart/form-data">
+                            {% csrf_token %}
+                            {{ form|crispy }}
+                            <button class="btn btn-primary w-100"><i class="bi bi-check-lg me-1"></i>Save Changes</button>
+                        </form>
+                    </div>
                 </div>
-                {% endif %}
-                <form method="post" enctype="multipart/form-data">
-                    {% csrf_token %}
-                    {{ form|crispy }}
-                    <button class="btn btn-primary">Save Changes</button>
-                </form>
             </div>
         </div>
     </div>
 
     <!-- ── Camera & Audio tab ───────────────────────────────────── -->
     <div class="tab-pane fade {% if tab == 'media' %}show active{% endif %}" id="mediaPane" role="tabpanel">
-        <div class="row">
+        <div class="row g-4">
             <!-- Camera -->
-            <div class="col-md-6 mb-4">
-                <h5>Camera</h5>
-                <select id="cameraSelect" class="form-select mb-3"></select>
-                <div class="settings-preview-wrap mb-2">
-                    <video id="cameraPreview" autoplay muted playsinline class="w-100 rounded bg-dark"></video>
-                    <div id="cameraOffMsg" class="settings-preview-off">
-                        <i class="bi bi-camera-video-off"></i>
-                        <p class="mb-0 mt-2 small">Select a camera to preview</p>
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header"><i class="bi bi-camera-video me-2"></i>Camera</div>
+                    <div class="card-body">
+                        <select id="cameraSelect" class="form-select mb-3"></select>
+                        <div class="settings-preview-wrap">
+                            <video id="cameraPreview" autoplay muted playsinline class="w-100 rounded bg-dark"></video>
+                            <div id="cameraOffMsg" class="settings-preview-off">
+                                <i class="bi bi-camera-video-off"></i>
+                                <p class="mb-0 mt-2 small">Select a camera to preview</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
 
             <!-- Microphone -->
-            <div class="col-md-6 mb-4">
-                <h5>Microphone</h5>
-                <select id="micSelect" class="form-select mb-3"></select>
+            <div class="col-md-6">
                 <div class="card">
+                    <div class="card-header"><i class="bi bi-mic me-2"></i>Microphone</div>
                     <div class="card-body">
+                        <select id="micSelect" class="form-select mb-3"></select>
                         <label class="form-label mb-2">Microphone Level</label>
                         <div class="mic-level-bar-bg">
                             <div id="micLevelBar" class="mic-level-bar"></div>
                         </div>
-                        <small id="micStatus" class="text-muted mt-2 d-block">Select a microphone to test</small>
+                        <small id="micStatus" style="color:var(--text-muted)" class="mt-2 d-block">Select a microphone to test</small>
                     </div>
                 </div>
             </div>
         </div>
-        <button id="saveMediaBtn" class="btn btn-primary">Save Preferences</button>
-        <span id="mediaSaved" class="text-success ms-2 d-none">Saved!</span>
+        <div class="mt-4 text-center">
+            <button id="saveMediaBtn" class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>Save Preferences</button>
+            <span id="mediaSaved" class="text-success ms-2 d-none"><i class="bi bi-check-circle me-1"></i>Saved!</span>
+        </div>
     </div>
 </div>
 {% endblock %}
