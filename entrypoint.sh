@@ -35,12 +35,19 @@ from apps.accounts.models import User
 from apps.rooms.models import Server, ServerMember
 import os
 pw = os.environ['TEST_USER_PASSWORD']
+adpw = os.environ['ADMIN_USER_PASSWORD']
 for name in ['test1', 'test2']:
     if not User.objects.filter(username=name).exists():
         User.objects.create_user(username=name, password=pw)
         print(f'  Created user: {name}')
     else:
         print(f'  User {name} already exists')
+
+if not User.objects.filter(username='admin').exists():
+    User.objects.create_user(username='admin', password=adpw)
+        print(f'  Created user: {admin}')
+    else:
+        print(f'  User {admin} already exists')
 test1 = User.objects.get(username='test1')
 test2 = User.objects.get(username='test2')
 server, created = Server.objects.get_or_create(name='Test Server', defaults={'owner': test1, 'is_public': True})
