@@ -26,4 +26,4 @@ export DJANGO_SETTINGS_MODULE="${DJANGO_SETTINGS_MODULE:-config.settings.develop
 # Run migrations
 python manage.py migrate --noinput
 
-python manage.py runserver
+python3 manage.py runserver
