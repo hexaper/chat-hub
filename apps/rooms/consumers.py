@@ -39,23 +39,38 @@ class ServerChatConsumer(AsyncWebsocketConsumer):
         except json.JSONDecodeError:
             return
 
-        if data.get('type') != 'chat_message':
-            return
+        msg_type = data.get('type')
 
-        content = data.get('content', '').strip()
-        if not content:
-            return
+        if msg_type == 'chat_message':
+            content = data.get('content', '').strip()
+            if not content:
+                return
+            msg = await self.save_message(content)
+            await self.channel_layer.group_send(self.chat_group, {
+                'type': 'chat_message',
+                'id': msg['id'],
+                'username': msg['username'],
+                'avatar_url': msg['avatar_url'],
+                'content': msg['content'],
+                'image_url': '',
+                'created_at': msg['created_at'],
+            })
 
-        msg = await self.save_message(content)
-
-        await self.channel_layer.group_send(self.chat_group, {
-            'type': 'chat_message',
-            'id': msg['id'],
-            'username': msg['username'],
-            'avatar_url': msg['avatar_url'],
-            'content': msg['content'],
-            'created_at': msg['created_at'],
-        })
+        elif msg_type == 'chat_image':
+            message_id = data.get('message_id')
+            if not message_id:
+                return
+            msg = await self.get_image_message(message_id)
+            if msg:
+                await self.channel_layer.group_send(self.chat_group, {
+                    'type': 'chat_message',
+                    'id': msg['id'],
+                    'username': msg['username'],
+                    'avatar_url': msg['avatar_url'],
+                    'content': msg['content'],
+                    'image_url': msg['image_url'],
+                    'created_at': msg['created_at'],
+                })
 
     async def chat_message(self, event):
         await self.send(text_data=json.dumps({
@@ -64,6 +79,7 @@ class ServerChatConsumer(AsyncWebsocketConsumer):
             'username': event['username'],
             'avatar_url': event['avatar_url'],
             'content': event['content'],
+            'image_url': event.get('image_url', ''),
             'created_at': event['created_at'],
         }))
 
@@ -90,10 +106,28 @@ class ServerChatConsumer(AsyncWebsocketConsumer):
                 'username': m.user.username,
                 'avatar_url': self._avatar_url(m.user),
                 'content': m.content,
+                'image_url': m.image.url if m.image else '',
                 'created_at': m.created_at.isoformat(),
             }
             for m in reversed(msgs)
         ]
+
+    @database_sync_to_async
+    def get_image_message(self, message_id):
+        try:
+            msg = ChatMessage.objects.select_related('user').get(
+                id=message_id, server__slug=self.server_slug, user=self.user
+            )
+        except ChatMessage.DoesNotExist:
+            return None
+        return {
+            'id': msg.id,
+            'username': msg.user.username,
+            'avatar_url': self._avatar_url(msg.user),
+            'content': msg.content,
+            'image_url': msg.image.url if msg.image else '',
+            'created_at': msg.created_at.isoformat(),
+        }
 
     @database_sync_to_async
     def save_message(self, content):

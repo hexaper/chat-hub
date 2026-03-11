@@ -554,6 +554,20 @@ video.speaking {
     line-height: 1.45;
 }
 
+.chat-image {
+    max-width: 260px;
+    max-height: 200px;
+    border-radius: var(--radius-sm);
+    margin: 4px 0;
+    cursor: pointer;
+    transition: opacity var(--transition);
+    display: block;
+}
+
+.chat-image:hover {
+    opacity: 0.85;
+}
+
 .chat-avatar {
     width: 32px;
     height: 32px;

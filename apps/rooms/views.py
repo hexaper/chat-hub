@@ -7,10 +7,11 @@ from django.shortcuts import render, get_object_or_404, redirect
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.utils import timezone
+from django.http import JsonResponse
 from django.views.decorators.http import require_POST as require_post_method
 
 from apps.accounts.models import User
-from .models import Server, ServerMember, Room, RoomParticipant
+from .models import Server, ServerMember, Room, RoomParticipant, ChatMessage
 from .forms import ServerForm, ServerSettingsForm, RoomForm, RoomPasswordForm
 
 
@@ -276,6 +277,37 @@ def room_delete(request, server_slug, slug):
             return redirect('admin_panel')
         return redirect('server_detail', server_slug=server.slug)
     return redirect('room_detail', server_slug=server.slug, slug=slug)
+
+
+# ── Chat image upload ────────────────────────────────────────────────────────
+
+@login_required
+@require_post_method
+def chat_image_upload(request, server_slug):
+    server = get_object_or_404(Server, slug=server_slug)
+    if not ServerMember.objects.filter(server=server, user=request.user).exists():
+        return JsonResponse({'error': 'Not a member'}, status=403)
+
+    image = request.FILES.get('image')
+    if not image:
+        return JsonResponse({'error': 'No image provided'}, status=400)
+
+    if image.size > 5 * 1024 * 1024:
+        return JsonResponse({'error': 'Image too large (max 5MB)'}, status=400)
+
+    allowed_types = ('image/jpeg', 'image/png', 'image/gif', 'image/webp')
+    if image.content_type not in allowed_types:
+        return JsonResponse({'error': 'Invalid image type'}, status=400)
+
+    msg = ChatMessage.objects.create(
+        server=server,
+        user=request.user,
+        image=image,
+    )
+    return JsonResponse({
+        'image_url': msg.image.url,
+        'message_id': msg.id,
+    })
 
 
 # ── Admin panel views ────────────────────────────────────────────────────────

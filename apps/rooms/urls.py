@@ -18,6 +18,7 @@ urlpatterns = [
     path('servers/<uuid:server_slug>/rooms/<uuid:slug>/', views.room_detail, name='room_detail'),
     path('servers/<uuid:server_slug>/rooms/<uuid:slug>/leave/', views.room_leave, name='room_leave'),
     path('servers/<uuid:server_slug>/rooms/<uuid:slug>/delete/', views.room_delete, name='room_delete'),
+    path('servers/<uuid:server_slug>/chat/upload/', views.chat_image_upload, name='chat_image_upload'),
 
     # Admin panel
     path('admin-panel/', views.admin_panel, name='admin_panel'),

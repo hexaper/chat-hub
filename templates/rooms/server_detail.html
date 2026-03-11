@@ -79,10 +79,19 @@
     <!-- Chat column -->
     <div class="col-lg-5">
         <h5 class="mb-3" style="color:var(--text-secondary)"><i class="bi bi-chat-dots me-1"></i>Chat</h5>
+        {% csrf_token %}
         <div class="card">
             <div id="chatMessages" class="card-body server-chat-messages"></div>
             <div class="card-footer p-2">
+                <div id="imagePreview" class="d-none mb-2 position-relative d-inline-block">
+                    <img id="imagePreviewImg" src="" style="max-height:80px;border-radius:var(--radius-sm)">
+                    <button type="button" id="imagePreviewClear" class="btn btn-sm p-0 position-absolute" style="top:-6px;right:-6px;background:var(--danger);color:#fff;width:20px;height:20px;border-radius:50%;font-size:0.65rem;line-height:1;display:flex;align-items:center;justify-content:center">&times;</button>
+                </div>
                 <form id="chatForm" class="d-flex gap-2" autocomplete="off">
+                    <input type="file" id="chatImageInput" accept="image/jpeg,image/png,image/gif,image/webp" class="d-none">
+                    <button type="button" id="chatImageBtn" class="btn btn-sm btn-outline-secondary" title="Send image">
+                        <i class="bi bi-image"></i>
+                    </button>
                     <input type="text" id="chatInput" class="form-control form-control-sm"
                            placeholder="Type a message..." maxlength="2000">
                     <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-send"></i></button>
@@ -129,6 +138,13 @@
         const isOwn = msg.username === USERNAME;
         const el = document.createElement('div');
         el.className = 'chat-msg d-flex gap-2 mb-2';
+        let bodyHtml = '';
+        if (msg.image_url) {
+            bodyHtml = `<a href="${escapeHtml(msg.image_url)}" target="_blank"><img src="${escapeHtml(msg.image_url)}" class="chat-image" alt="image"></a>`;
+        }
+        if (msg.content) {
+            bodyHtml += `<div class="chat-msg-content">${escapeHtml(msg.content)}</div>`;
+        }
         el.innerHTML =
             avatarHtml(msg) +
             `<div class="flex-grow-1 min-width-0">` +
@@ -136,7 +152,7 @@
             `<strong style="color:${isOwn ? 'var(--accent-hover)' : 'var(--text-primary)'}; font-size:0.85rem">${escapeHtml(msg.username)}</strong>` +
             `<small style="color:var(--text-muted); font-size:0.75rem">${formatTime(msg.created_at)}</small>` +
             `</div>` +
-            `<div class="chat-msg-content">${escapeHtml(msg.content)}</div>` +
+            bodyHtml +
             `</div>`;
         messagesDiv.appendChild(el);
         messagesDiv.scrollTop = messagesDiv.scrollHeight;
@@ -160,12 +176,76 @@
         };
     }
 
-    chatForm.addEventListener('submit', function(e) {
+    const chatImageBtn = document.getElementById('chatImageBtn');
+    const chatImageInput = document.getElementById('chatImageInput');
+    const imagePreview = document.getElementById('imagePreview');
+    const imagePreviewImg = document.getElementById('imagePreviewImg');
+    const imagePreviewClear = document.getElementById('imagePreviewClear');
+    let pendingFile = null;
+
+    chatImageBtn.addEventListener('click', () => chatImageInput.click());
+
+    chatImageInput.addEventListener('change', function() {
+        const file = this.files[0];
+        if (!file) return;
+        if (file.size > 5 * 1024 * 1024) {
+            alert('Image too large (max 5MB)');
+            this.value = '';
+            return;
+        }
+        pendingFile = file;
+        imagePreviewImg.src = URL.createObjectURL(file);
+        imagePreview.classList.remove('d-none');
+    });
+
+    imagePreviewClear.addEventListener('click', function() {
+        pendingFile = null;
+        chatImageInput.value = '';
+        imagePreview.classList.add('d-none');
+    });
+
+    async function uploadImage(file) {
+        const formData = new FormData();
+        formData.append('image', file);
+        const csrfToken = document.querySelector('[name=csrfmiddlewaretoken]')?.value
+            || document.cookie.split('; ').find(c => c.startsWith('csrftoken='))?.split('=')[1] || '';
+        const resp = await fetch(`/servers/${SERVER_SLUG}/chat/upload/`, {
+            method: 'POST',
+            headers: { 'X-CSRFToken': csrfToken },
+            body: formData,
+        });
+        if (!resp.ok) {
+            const err = await resp.json().catch(() => ({}));
+            throw new Error(err.error || 'Upload failed');
+        }
+        return resp.json();
+    }
+
+    chatForm.addEventListener('submit', async function(e) {
         e.preventDefault();
         const text = chatInput.value.trim();
-        if (!text || !socket || socket.readyState !== WebSocket.OPEN) return;
-        socket.send(JSON.stringify({ type: 'chat_message', content: text }));
-        chatInput.value = '';
+        if (!socket || socket.readyState !== WebSocket.OPEN) return;
+
+        if (pendingFile) {
+            const file = pendingFile;
+            pendingFile = null;
+            chatImageInput.value = '';
+            imagePreview.classList.add('d-none');
+            try {
+                const result = await uploadImage(file);
+                socket.send(JSON.stringify({
+                    type: 'chat_image',
+                    message_id: result.message_id,
+                }));
+            } catch (err) {
+                alert('Failed to upload image: ' + err.message);
+            }
+        }
+
+        if (text) {
+            socket.send(JSON.stringify({ type: 'chat_message', content: text }));
+            chatInput.value = '';
+        }
     });
 
     connect();
