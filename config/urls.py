@@ -10,5 +10,5 @@ urlpatterns = [
     path('', include('apps.rooms.urls')),
 ]
 
-if settings.DEBUG:
-    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+# Serve uploaded media (avatars, etc.) — in production consider a reverse proxy
+urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
