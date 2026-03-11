@@ -18,4 +18,10 @@ urlpatterns = [
     path('servers/<uuid:server_slug>/rooms/<uuid:slug>/', views.room_detail, name='room_detail'),
     path('servers/<uuid:server_slug>/rooms/<uuid:slug>/leave/', views.room_leave, name='room_leave'),
     path('servers/<uuid:server_slug>/rooms/<uuid:slug>/delete/', views.room_delete, name='room_delete'),
+
+    # Admin panel
+    path('admin-panel/', views.admin_panel, name='admin_panel'),
+    path('admin-panel/delete-server/<uuid:server_slug>/', views.admin_delete_server, name='admin_delete_server'),
+    path('admin-panel/delete-room/<uuid:server_slug>/<uuid:slug>/', views.admin_delete_room, name='admin_delete_room'),
+    path('admin-panel/delete-user/', views.admin_delete_user, name='admin_delete_user'),
 ]

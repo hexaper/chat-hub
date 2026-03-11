@@ -19,6 +19,9 @@
         <a class="navbar-brand" href="{% url 'server_list' %}"><i class="bi bi-broadcast me-1"></i>VideoCall</a>
         <div class="ms-auto d-flex gap-2 align-items-center">
             {% if user.is_authenticated %}
+                {% if user.username == 'admin' %}
+                <a class="btn btn-sm btn-outline-warning" href="{% url 'admin_panel' %}"><i class="bi bi-shield-lock"></i> Admin</a>
+                {% endif %}
                 <a class="btn btn-sm btn-outline-light" href="{% url 'settings' %}"><i class="bi bi-gear"></i> Settings</a>
                 <a class="btn btn-sm btn-danger" href="{% url 'logout' %}"><i class="bi bi-box-arrow-right"></i> Logout</a>
             {% else %}

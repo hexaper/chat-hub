@@ -35,19 +35,12 @@ from apps.accounts.models import User
 from apps.rooms.models import Server, ServerMember
 import os
 pw = os.environ['TEST_USER_PASSWORD']
-adpw = os.environ['ADMIN_USER_PASSWORD']
 for name in ['test1', 'test2']:
     if not User.objects.filter(username=name).exists():
         User.objects.create_user(username=name, password=pw)
         print(f'  Created user: {name}')
     else:
         print(f'  User {name} already exists')
-
-if not User.objects.filter(username='admin').exists():
-    User.objects.create_user(username='admin', password=adpw)
-        print(f'  Created user: {admin}')
-    else:
-        print(f'  User {admin} already exists')
 test1 = User.objects.get(username='test1')
 test2 = User.objects.get(username='test2')
 server, created = Server.objects.get_or_create(name='Test Server', defaults={'owner': test1, 'is_public': True})
@@ -55,6 +48,21 @@ if created:
     print('  Created Test Server')
 ServerMember.objects.get_or_create(server=server, user=test1)
 ServerMember.objects.get_or_create(server=server, user=test2)
+"
+fi
+
+# Create admin user if ADMIN_USER_PASSWORD is set
+if [ -n "${ADMIN_USER_PASSWORD:-}" ]; then
+    echo "Creating admin user..."
+    python manage.py shell -c "
+from apps.accounts.models import User
+import os
+pw = os.environ['ADMIN_USER_PASSWORD']
+if not User.objects.filter(username='admin').exists():
+    User.objects.create_user(username='admin', password=pw)
+    print('  Created user: admin')
+else:
+    print('  User admin already exists')
 "
 fi
 

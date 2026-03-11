@@ -1,4 +1,5 @@
 from datetime import timedelta
+from functools import wraps
 
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
@@ -8,8 +9,24 @@ from django.contrib import messages
 from django.utils import timezone
 from django.views.decorators.http import require_POST as require_post_method
 
+from apps.accounts.models import User
 from .models import Server, ServerMember, Room, RoomParticipant
 from .forms import ServerForm, ServerSettingsForm, RoomForm, RoomPasswordForm
+
+
+def _is_admin(user):
+    return user.is_authenticated and user.username == 'admin'
+
+
+def admin_required(view_func):
+    @wraps(view_func)
+    @login_required
+    def wrapper(request, *args, **kwargs):
+        if not _is_admin(request.user):
+            messages.error(request, 'Admin access required.')
+            return redirect('server_list')
+        return view_func(request, *args, **kwargs)
+    return wrapper
 
 
 # ── Server views ──────────────────────────────────────────────────────────────
@@ -88,7 +105,10 @@ def server_join(request):
 
 @login_required
 def server_settings(request, server_slug):
-    server = get_object_or_404(Server, slug=server_slug, owner=request.user)
+    if _is_admin(request.user):
+        server = get_object_or_404(Server, slug=server_slug)
+    else:
+        server = get_object_or_404(Server, slug=server_slug, owner=request.user)
     members = ServerMember.objects.filter(server=server).select_related('user').order_by('joined_at')
 
     if request.method == 'POST':
@@ -110,7 +130,10 @@ def server_settings(request, server_slug):
 @login_required
 @require_post_method
 def server_kick_member(request, server_slug):
-    server = get_object_or_404(Server, slug=server_slug, owner=request.user)
+    if _is_admin(request.user):
+        server = get_object_or_404(Server, slug=server_slug)
+    else:
+        server = get_object_or_404(Server, slug=server_slug, owner=request.user)
     user_id = request.POST.get('user_id')
     if str(user_id) == str(server.owner_id):
         messages.error(request, "You can't remove yourself as owner.")
@@ -126,7 +149,10 @@ def server_kick_member(request, server_slug):
 @login_required
 @require_post_method
 def server_regenerate_invite(request, server_slug):
-    server = get_object_or_404(Server, slug=server_slug, owner=request.user)
+    if _is_admin(request.user):
+        server = get_object_or_404(Server, slug=server_slug)
+    else:
+        server = get_object_or_404(Server, slug=server_slug, owner=request.user)
     server.regenerate_invite_code()
     messages.success(request, 'Invite code regenerated.')
     return redirect('server_settings', server_slug=server.slug)
@@ -147,7 +173,10 @@ def server_leave(request, server_slug):
 @login_required
 @require_post_method
 def server_delete(request, server_slug):
-    server = get_object_or_404(Server, slug=server_slug, owner=request.user)
+    if _is_admin(request.user):
+        server = get_object_or_404(Server, slug=server_slug)
+    else:
+        server = get_object_or_404(Server, slug=server_slug, owner=request.user)
     name = server.name
     server.delete()
     messages.success(request, f'Server "{name}" deleted.')
@@ -230,7 +259,10 @@ def room_leave(request, server_slug, slug):
 @login_required
 def room_delete(request, server_slug, slug):
     server = get_object_or_404(Server, slug=server_slug)
-    room = get_object_or_404(Room, slug=slug, server=server, host=request.user, is_active=True)
+    if _is_admin(request.user):
+        room = get_object_or_404(Room, slug=slug, server=server, is_active=True)
+    else:
+        room = get_object_or_404(Room, slug=slug, server=server, host=request.user, is_active=True)
     if request.method == 'POST':
         room.is_active = False
         room.save()
@@ -240,5 +272,73 @@ def room_delete(request, server_slug, slug):
             {'type': 'room_closed'},
         )
         messages.success(request, f'Room "{room.name}" has been closed.')
+        if _is_admin(request.user):
+            return redirect('admin_panel')
         return redirect('server_detail', server_slug=server.slug)
     return redirect('room_detail', server_slug=server.slug, slug=slug)
+
+
+# ── Admin panel views ────────────────────────────────────────────────────────
+
+@admin_required
+def admin_panel(request):
+    servers = Server.objects.prefetch_related(
+        'servermember_set__user',
+    ).all().order_by('-created_at')
+
+    # Users not in any server
+    users_without_server = User.objects.exclude(
+        id__in=ServerMember.objects.values_list('user_id', flat=True)
+    )
+
+    total_users = User.objects.count()
+    total_servers = servers.count()
+    total_rooms = Room.objects.filter(is_active=True).count()
+
+    return render(request, 'rooms/admin_panel.html', {
+        'servers': servers,
+        'users_without_server': users_without_server,
+        'total_users': total_users,
+        'total_servers': total_servers,
+        'total_rooms': total_rooms,
+    })
+
+
+@admin_required
+@require_post_method
+def admin_delete_server(request, server_slug):
+    server = get_object_or_404(Server, slug=server_slug)
+    name = server.name
+    server.delete()
+    messages.success(request, f'Server "{name}" deleted.')
+    return redirect('admin_panel')
+
+
+@admin_required
+@require_post_method
+def admin_delete_room(request, server_slug, slug):
+    server = get_object_or_404(Server, slug=server_slug)
+    room = get_object_or_404(Room, slug=slug, server=server, is_active=True)
+    room.is_active = False
+    room.save()
+    channel_layer = get_channel_layer()
+    async_to_sync(channel_layer.group_send)(
+        f'room_{slug}',
+        {'type': 'room_closed'},
+    )
+    messages.success(request, f'Room "{room.name}" closed.')
+    return redirect('admin_panel')
+
+
+@admin_required
+@require_post_method
+def admin_delete_user(request):
+    user_id = request.POST.get('user_id')
+    user = get_object_or_404(User, id=user_id)
+    if user.username == 'admin':
+        messages.error(request, "Cannot delete the admin account.")
+    else:
+        username = user.username
+        user.delete()
+        messages.success(request, f'User "{username}" deleted.')
+    return redirect('admin_panel')
