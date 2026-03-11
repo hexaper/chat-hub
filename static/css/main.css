@@ -68,11 +68,15 @@ video.speaking {
 
 .server-card-img-wrap {
     width: 100%;
-    aspect-ratio: 1;
+    padding-top: 100%; /* force 1:1 square */
+    position: relative;
     overflow: hidden;
 }
 
 .server-card-img {
+    position: absolute;
+    top: 0;
+    left: 0;
     width: 100%;
     height: 100%;
     object-fit: cover;
@@ -80,6 +84,9 @@ video.speaking {
 }
 
 .server-card-placeholder {
+    position: absolute;
+    top: 0;
+    left: 0;
     width: 100%;
     height: 100%;
     background: #2d3436;
@@ -93,4 +100,16 @@ video.speaking {
     font-weight: 700;
     color: #b2bec3;
     text-transform: uppercase;
+}
+
+/* ── Server chat ───────────────────────────────────────────── */
+
+.server-chat-messages {
+    height: 400px;
+    overflow-y: auto;
+    font-size: 0.9rem;
+}
+
+.chat-msg-content {
+    word-break: break-word;
 }

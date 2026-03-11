@@ -2,7 +2,102 @@ import json
 import time
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
-from .models import Room, RoomParticipant
+from .models import Room, RoomParticipant, Server, ServerMember, ChatMessage
+
+
+class ServerChatConsumer(AsyncWebsocketConsumer):
+    async def connect(self):
+        self.server_slug = self.scope['url_route']['kwargs']['slug']
+        self.chat_group = f'server_chat_{self.server_slug}'
+        self.user = self.scope['user']
+
+        if not self.user.is_authenticated:
+            await self.close()
+            return
+
+        if not await self.is_member():
+            await self.close()
+            return
+
+        await self.channel_layer.group_add(self.chat_group, self.channel_name)
+        await self.accept()
+
+        # Send recent message history
+        history = await self.get_history()
+        await self.send(text_data=json.dumps({
+            'type': 'history',
+            'messages': history,
+        }))
+
+    async def disconnect(self, code):
+        if hasattr(self, 'chat_group'):
+            await self.channel_layer.group_discard(self.chat_group, self.channel_name)
+
+    async def receive(self, text_data):
+        try:
+            data = json.loads(text_data)
+        except json.JSONDecodeError:
+            return
+
+        if data.get('type') != 'chat_message':
+            return
+
+        content = data.get('content', '').strip()
+        if not content:
+            return
+
+        msg = await self.save_message(content)
+
+        await self.channel_layer.group_send(self.chat_group, {
+            'type': 'chat_message',
+            'id': msg['id'],
+            'username': msg['username'],
+            'content': msg['content'],
+            'created_at': msg['created_at'],
+        })
+
+    async def chat_message(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'chat_message',
+            'id': event['id'],
+            'username': event['username'],
+            'content': event['content'],
+            'created_at': event['created_at'],
+        }))
+
+    @database_sync_to_async
+    def is_member(self):
+        return ServerMember.objects.filter(
+            server__slug=self.server_slug, user=self.user
+        ).exists()
+
+    @database_sync_to_async
+    def get_history(self):
+        msgs = ChatMessage.objects.filter(
+            server__slug=self.server_slug
+        ).select_related('user').order_by('-created_at')[:50]
+        return [
+            {
+                'id': m.id,
+                'username': m.user.username,
+                'content': m.content,
+                'created_at': m.created_at.isoformat(),
+            }
+            for m in reversed(msgs)
+        ]
+
+    @database_sync_to_async
+    def save_message(self, content):
+        server = Server.objects.get(slug=self.server_slug)
+        msg = ChatMessage.objects.create(
+            server=server, user=self.user, content=content[:2000]
+        )
+        return {
+            'id': msg.id,
+            'username': self.user.username,
+            'content': msg.content,
+            'created_at': msg.created_at.isoformat(),
+        }
 
 
 class RoomConsumer(AsyncWebsocketConsumer):
