@@ -1,5 +1,23 @@
 from django import forms
-from .models import Room
+from .models import Room, Server
+
+
+class ServerForm(forms.ModelForm):
+    class Meta:
+        model = Server
+        fields = ('name', 'avatar', 'description', 'is_public')
+        widgets = {
+            'description': forms.Textarea(attrs={'rows': 3}),
+        }
+
+
+class ServerSettingsForm(forms.ModelForm):
+    class Meta:
+        model = Server
+        fields = ('name', 'avatar', 'description', 'is_public')
+        widgets = {
+            'description': forms.Textarea(attrs={'rows': 3}),
+        }
 
 
 class RoomForm(forms.ModelForm):

@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+{% load crispy_forms_tags %}
+{% block title %}Create Server{% endblock %}
+{% block content %}
+<div class="row justify-content-center mt-4">
+    <div class="col-md-5">
+        <div class="auth-card">
+            <h2 class="mb-1 text-center"><i class="bi bi-plus-circle me-2"></i>Create Server</h2>
+            <p class="text-center mb-4" style="color:var(--text-muted)">Set up a new space for your community</p>
+            <form method="post" enctype="multipart/form-data">
+                {% csrf_token %}
+                {{ form|crispy }}
+                <button class="btn btn-primary w-100 mt-2">Create Server</button>
+            </form>
+            <p class="mt-3 text-center mb-0">
+                <a href="{% url 'server_list' %}" class="text-decoration-none" style="color:var(--text-muted)">
+                    <i class="bi bi-arrow-left me-1"></i>Back to servers
+                </a>
+            </p>
+        </div>
+    </div>
+</div>
+{% endblock %}

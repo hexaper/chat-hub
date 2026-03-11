@@ -1,0 +1,118 @@
+{% extends 'base.html' %}
+{% load crispy_forms_tags %}
+{% block title %}{{ server.name }} — Settings{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-4">
+    <div>
+        <h2 class="mb-0"><i class="bi bi-gear me-2"></i>Server Settings</h2>
+        <small style="color:var(--text-muted)">{{ server.name }}</small>
+    </div>
+    <a href="{% url 'server_detail' server_slug=server.slug %}" class="btn btn-outline-secondary btn-sm">
+        <i class="bi bi-arrow-left me-1"></i>Back to Server
+    </a>
+</div>
+
+<div class="row g-4">
+    <!-- Settings column -->
+    <div class="col-lg-6">
+        <!-- General settings -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <i class="bi bi-sliders me-2"></i>General
+            </div>
+            <div class="card-body">
+                {% if server.avatar %}
+                <div class="mb-3 text-center">
+                    <img src="{{ server.avatar.url }}" alt="{{ server.name }}"
+                         class="rounded" style="width:80px;height:80px;object-fit:cover;border:2px solid var(--border-color)">
+                </div>
+                {% endif %}
+                <form method="post" enctype="multipart/form-data">
+                    {% csrf_token %}
+                    {{ form|crispy }}
+                    <button class="btn btn-primary w-100"><i class="bi bi-check-lg me-1"></i>Save Changes</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Invite link -->
+        <div class="card mb-4">
+            <div class="card-header">
+                <i class="bi bi-link-45deg me-2"></i>Invite Link
+            </div>
+            <div class="card-body">
+                <div class="input-group mb-3">
+                    <input type="text" class="form-control" id="inviteLink" readonly
+                           value="{{ request.scheme }}://{{ request.get_host }}/servers/join/?code={{ server.invite_code }}">
+                    <button class="btn btn-outline-secondary" type="button"
+                            onclick="navigator.clipboard.writeText(document.getElementById('inviteLink').value).then(() => {this.innerHTML='<i class=\'bi bi-check2\'></i> Copied'; setTimeout(() => this.innerHTML='<i class=\'bi bi-clipboard\'></i> Copy', 2000)})">
+                        <i class="bi bi-clipboard"></i> Copy
+                    </button>
+                </div>
+                <form method="post" action="{% url 'server_regenerate_invite' server_slug=server.slug %}" class="d-inline">
+                    {% csrf_token %}
+                    <button class="btn btn-sm btn-outline-warning"
+                            onclick="return confirm('This will invalidate the current invite link. Continue?')">
+                        <i class="bi bi-arrow-repeat me-1"></i>Regenerate Code
+                    </button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Danger zone -->
+        <div class="card border-danger">
+            <div class="card-header text-danger">
+                <i class="bi bi-exclamation-triangle me-2"></i>Danger Zone
+            </div>
+            <div class="card-body">
+                <p class="mb-3" style="color:var(--text-muted); font-size:0.875rem">
+                    Permanently delete this server and all its rooms. This action cannot be undone.
+                </p>
+                <form method="post" action="{% url 'server_delete' server_slug=server.slug %}"
+                      onsubmit="return confirm('Are you sure you want to permanently delete this server and all its rooms?')">
+                    {% csrf_token %}
+                    <button class="btn btn-danger"><i class="bi bi-trash me-1"></i>Delete Server</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Members column -->
+    <div class="col-lg-6">
+        <div class="card">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <span><i class="bi bi-people me-2"></i>Members</span>
+                <span class="badge bg-secondary">{{ members|length }}</span>
+            </div>
+            <ul class="list-group list-group-flush">
+                {% for m in members %}
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                    <div class="d-flex align-items-center gap-2">
+                        {% if m.user.avatar %}
+                        <img src="{{ m.user.avatar.url }}" class="rounded-circle" style="width:32px;height:32px;object-fit:cover" alt="">
+                        {% else %}
+                        <div class="chat-avatar chat-avatar-placeholder">{{ m.user.username|truncatechars:1 }}</div>
+                        {% endif %}
+                        <div>
+                            <strong>{{ m.user.username }}</strong>
+                            {% if m.user == server.owner %}
+                            <span class="badge bg-primary ms-1">Owner</span>
+                            {% endif %}
+                            <br><small style="color:var(--text-muted)">Joined {{ m.joined_at|date:"M d, Y" }}</small>
+                        </div>
+                    </div>
+                    {% if m.user != server.owner %}
+                    <form method="post" action="{% url 'server_kick_member' server_slug=server.slug %}"
+                          onsubmit="return confirm('Remove {{ m.user.username }} from this server?')">
+                        {% csrf_token %}
+                        <input type="hidden" name="user_id" value="{{ m.user.id }}">
+                        <button class="btn btn-sm btn-outline-danger"><i class="bi bi-x-lg"></i></button>
+                    </form>
+                    {% endif %}
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+</div>
+{% endblock %}

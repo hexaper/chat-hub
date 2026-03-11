@@ -1,0 +1,263 @@
+{% extends 'base.html' %}
+{% load crispy_forms_tags %}
+{% load static %}
+{% block title %}Settings{% endblock %}
+{% block content %}
+<h2 class="mb-4"><i class="bi bi-gear me-2"></i>Settings</h2>
+
+<!-- Tabs -->
+<ul class="nav nav-tabs mb-4" role="tablist">
+    <li class="nav-item">
+        <a class="nav-link {% if tab == 'account' %}active{% endif %}" href="?tab=account"
+           id="account-tab" data-bs-toggle="tab" data-bs-target="#accountPane" role="tab">
+            <i class="bi bi-person me-1"></i>Account
+        </a>
+    </li>
+    <li class="nav-item">
+        <a class="nav-link {% if tab == 'media' %}active{% endif %}" href="?tab=media"
+           id="media-tab" data-bs-toggle="tab" data-bs-target="#mediaPane" role="tab">
+            <i class="bi bi-camera-video me-1"></i>Camera & Audio
+        </a>
+    </li>
+</ul>
+
+<div class="tab-content">
+    <!-- ── Account tab ──────────────────────────────────────────── -->
+    <div class="tab-pane fade {% if tab == 'account' %}show active{% endif %}" id="accountPane" role="tabpanel">
+        <div class="row justify-content-center">
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header"><i class="bi bi-person-circle me-2"></i>Profile</div>
+                    <div class="card-body">
+                        {% if request.user.avatar %}
+                        <div class="mb-3 text-center">
+                            <img src="{{ request.user.avatar.url }}" alt="Avatar"
+                                 class="rounded-circle"
+                                 style="width:80px;height:80px;object-fit:cover;border:3px solid var(--border-color)">
+                        </div>
+                        {% else %}
+                        <div class="mb-3 text-center">
+                            <div style="width:80px;height:80px;border-radius:50%;background:var(--bg-hover);display:inline-flex;align-items:center;justify-content:center;font-size:2rem;color:var(--text-muted);border:3px solid var(--border-color)">
+                                {{ request.user.username|truncatechars:1 }}
+                            </div>
+                        </div>
+                        {% endif %}
+                        <form method="post" enctype="multipart/form-data">
+                            {% csrf_token %}
+                            {{ form|crispy }}
+                            <button class="btn btn-primary w-100"><i class="bi bi-check-lg me-1"></i>Save Changes</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Camera & Audio tab ───────────────────────────────────── -->
+    <div class="tab-pane fade {% if tab == 'media' %}show active{% endif %}" id="mediaPane" role="tabpanel">
+        <div class="row g-4">
+            <!-- Camera -->
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header"><i class="bi bi-camera-video me-2"></i>Camera</div>
+                    <div class="card-body">
+                        <select id="cameraSelect" class="form-select mb-3"></select>
+                        <div class="settings-preview-wrap">
+                            <video id="cameraPreview" autoplay muted playsinline class="w-100 rounded bg-dark"></video>
+                            <div id="cameraOffMsg" class="settings-preview-off">
+                                <i class="bi bi-camera-video-off"></i>
+                                <p class="mb-0 mt-2 small">Select a camera to preview</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Microphone -->
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header"><i class="bi bi-mic me-2"></i>Microphone</div>
+                    <div class="card-body">
+                        <select id="micSelect" class="form-select mb-3"></select>
+                        <label class="form-label mb-2">Microphone Level</label>
+                        <div class="mic-level-bar-bg">
+                            <div id="micLevelBar" class="mic-level-bar"></div>
+                        </div>
+                        <small id="micStatus" style="color:var(--text-muted)" class="mt-2 d-block">Select a microphone to test</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="mt-4 text-center">
+            <button id="saveMediaBtn" class="btn btn-primary"><i class="bi bi-check-lg me-1"></i>Save Preferences</button>
+            <span id="mediaSaved" class="text-success ms-2 d-none"><i class="bi bi-check-circle me-1"></i>Saved!</span>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+    let cameraStream = null;
+    let micStream = null;
+    let micAnimId = null;
+
+    const cameraSelect = document.getElementById('cameraSelect');
+    const micSelect = document.getElementById('micSelect');
+    const cameraPreview = document.getElementById('cameraPreview');
+    const cameraOffMsg = document.getElementById('cameraOffMsg');
+    const micLevelBar = document.getElementById('micLevelBar');
+    const micStatus = document.getElementById('micStatus');
+
+    // ── Load saved preferences ────────────────────────────────
+    const savedCamera = localStorage.getItem('preferredCamera') || '';
+    const savedMic = localStorage.getItem('preferredMic') || '';
+
+    // ── Enumerate devices ─────────────────────────────────────
+    async function loadDevices() {
+        // Need permission first to get labels
+        try {
+            const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
+            tempStream.getTracks().forEach(t => t.stop());
+        } catch (e) {
+            // Might not have camera, try audio only
+            try {
+                const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                tempStream.getTracks().forEach(t => t.stop());
+            } catch (e2) {}
+        }
+
+        const devices = await navigator.mediaDevices.enumerateDevices();
+
+        cameraSelect.innerHTML = '<option value="">-- None --</option>';
+        micSelect.innerHTML = '<option value="">-- None --</option>';
+
+        devices.forEach(d => {
+            const label = d.label || `${d.kind} (${d.deviceId.slice(0, 8)})`;
+            if (d.kind === 'videoinput') {
+                const opt = new Option(label, d.deviceId);
+                if (d.deviceId === savedCamera) opt.selected = true;
+                cameraSelect.appendChild(opt);
+            }
+            if (d.kind === 'audioinput') {
+                const opt = new Option(label, d.deviceId);
+                if (d.deviceId === savedMic) opt.selected = true;
+                micSelect.appendChild(opt);
+            }
+        });
+
+        // Auto-start previews if saved
+        if (savedCamera) startCameraPreview(savedCamera);
+        if (savedMic) startMicPreview(savedMic);
+    }
+
+    // ── Camera preview ────────────────────────────────────────
+    async function startCameraPreview(deviceId) {
+        stopCameraPreview();
+        if (!deviceId) {
+            cameraOffMsg.style.display = '';
+            return;
+        }
+        try {
+            cameraStream = await navigator.mediaDevices.getUserMedia({
+                video: { deviceId: { exact: deviceId } }
+            });
+            cameraPreview.srcObject = cameraStream;
+            cameraOffMsg.style.display = 'none';
+        } catch (e) {
+            console.warn('Camera preview failed:', e);
+            cameraOffMsg.style.display = '';
+        }
+    }
+
+    function stopCameraPreview() {
+        if (cameraStream) {
+            cameraStream.getTracks().forEach(t => t.stop());
+            cameraStream = null;
+        }
+        cameraPreview.srcObject = null;
+        cameraOffMsg.style.display = '';
+    }
+
+    // ── Mic level meter ───────────────────────────────────────
+    async function startMicPreview(deviceId) {
+        stopMicPreview();
+        if (!deviceId) {
+            micStatus.textContent = 'Select a microphone to test';
+            return;
+        }
+        try {
+            micStream = await navigator.mediaDevices.getUserMedia({
+                audio: { deviceId: { exact: deviceId } }
+            });
+            const audioCtx = new AudioContext();
+            const source = audioCtx.createMediaStreamSource(micStream);
+            const analyser = audioCtx.createAnalyser();
+            analyser.fftSize = 256;
+            source.connect(analyser);
+            const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+            micStatus.textContent = 'Listening...';
+
+            function draw() {
+                micAnimId = requestAnimationFrame(draw);
+                analyser.getByteFrequencyData(dataArray);
+                let sum = 0;
+                for (let i = 0; i < dataArray.length; i++) sum += dataArray[i];
+                const avg = sum / dataArray.length;
+                const pct = Math.min(100, (avg / 128) * 100);
+                micLevelBar.style.width = pct + '%';
+
+                if (pct > 50) micLevelBar.className = 'mic-level-bar mic-level-high';
+                else if (pct > 15) micLevelBar.className = 'mic-level-bar mic-level-mid';
+                else micLevelBar.className = 'mic-level-bar mic-level-low';
+            }
+            draw();
+        } catch (e) {
+            console.warn('Mic preview failed:', e);
+            micStatus.textContent = 'Could not access microphone';
+        }
+    }
+
+    function stopMicPreview() {
+        if (micAnimId) { cancelAnimationFrame(micAnimId); micAnimId = null; }
+        if (micStream) {
+            micStream.getTracks().forEach(t => t.stop());
+            micStream = null;
+        }
+        micLevelBar.style.width = '0%';
+    }
+
+    // ── Events ────────────────────────────────────────────────
+    cameraSelect.addEventListener('change', () => startCameraPreview(cameraSelect.value));
+    micSelect.addEventListener('change', () => startMicPreview(micSelect.value));
+
+    document.getElementById('saveMediaBtn').addEventListener('click', () => {
+        localStorage.setItem('preferredCamera', cameraSelect.value);
+        localStorage.setItem('preferredMic', micSelect.value);
+        const saved = document.getElementById('mediaSaved');
+        saved.classList.remove('d-none');
+        setTimeout(() => saved.classList.add('d-none'), 2000);
+    });
+
+    // Clean up streams when leaving page
+    window.addEventListener('beforeunload', () => {
+        stopCameraPreview();
+        stopMicPreview();
+    });
+
+    // Also clean up when switching tabs
+    document.getElementById('account-tab').addEventListener('shown.bs.tab', () => {
+        stopCameraPreview();
+        stopMicPreview();
+    });
+    document.getElementById('media-tab').addEventListener('shown.bs.tab', () => {
+        if (cameraSelect.value) startCameraPreview(cameraSelect.value);
+        if (micSelect.value) startMicPreview(micSelect.value);
+    });
+
+    loadDevices();
+})();
+</script>
+{% endblock %}

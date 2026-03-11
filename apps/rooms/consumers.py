@@ -2,7 +2,112 @@ import json
 import time
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
-from .models import Room, RoomParticipant
+from .models import Room, RoomParticipant, Server, ServerMember, ChatMessage
+
+
+class ServerChatConsumer(AsyncWebsocketConsumer):
+    async def connect(self):
+        self.server_slug = self.scope['url_route']['kwargs']['slug']
+        self.chat_group = f'server_chat_{self.server_slug}'
+        self.user = self.scope['user']
+
+        if not self.user.is_authenticated:
+            await self.close()
+            return
+
+        if not await self.is_member():
+            await self.close()
+            return
+
+        await self.channel_layer.group_add(self.chat_group, self.channel_name)
+        await self.accept()
+
+        # Send recent message history
+        history = await self.get_history()
+        await self.send(text_data=json.dumps({
+            'type': 'history',
+            'messages': history,
+        }))
+
+    async def disconnect(self, code):
+        if hasattr(self, 'chat_group'):
+            await self.channel_layer.group_discard(self.chat_group, self.channel_name)
+
+    async def receive(self, text_data):
+        try:
+            data = json.loads(text_data)
+        except json.JSONDecodeError:
+            return
+
+        if data.get('type') != 'chat_message':
+            return
+
+        content = data.get('content', '').strip()
+        if not content:
+            return
+
+        msg = await self.save_message(content)
+
+        await self.channel_layer.group_send(self.chat_group, {
+            'type': 'chat_message',
+            'id': msg['id'],
+            'username': msg['username'],
+            'avatar_url': msg['avatar_url'],
+            'content': msg['content'],
+            'created_at': msg['created_at'],
+        })
+
+    async def chat_message(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'chat_message',
+            'id': event['id'],
+            'username': event['username'],
+            'avatar_url': event['avatar_url'],
+            'content': event['content'],
+            'created_at': event['created_at'],
+        }))
+
+    @database_sync_to_async
+    def is_member(self):
+        return ServerMember.objects.filter(
+            server__slug=self.server_slug, user=self.user
+        ).exists()
+
+    @staticmethod
+    def _avatar_url(user):
+        if user.avatar and hasattr(user.avatar, 'url'):
+            return user.avatar.url
+        return ''
+
+    @database_sync_to_async
+    def get_history(self):
+        msgs = ChatMessage.objects.filter(
+            server__slug=self.server_slug
+        ).select_related('user').order_by('-created_at')[:50]
+        return [
+            {
+                'id': m.id,
+                'username': m.user.username,
+                'avatar_url': self._avatar_url(m.user),
+                'content': m.content,
+                'created_at': m.created_at.isoformat(),
+            }
+            for m in reversed(msgs)
+        ]
+
+    @database_sync_to_async
+    def save_message(self, content):
+        server = Server.objects.get(slug=self.server_slug)
+        msg = ChatMessage.objects.create(
+            server=server, user=self.user, content=content[:2000]
+        )
+        return {
+            'id': msg.id,
+            'username': self.user.username,
+            'avatar_url': self._avatar_url(self.user),
+            'content': msg.content,
+            'created_at': msg.created_at.isoformat(),
+        }
 
 
 class RoomConsumer(AsyncWebsocketConsumer):
@@ -19,6 +124,9 @@ class RoomConsumer(AsyncWebsocketConsumer):
 
         await self.channel_layer.group_add(self.room_group, self.channel_name)
         await self.accept()
+
+        # Room is no longer empty
+        await self.clear_last_empty_at()
 
         # Tell this client its own channel name before the group broadcast
         await self.send(text_data=json.dumps({
@@ -45,6 +153,7 @@ class RoomConsumer(AsyncWebsocketConsumer):
             'seq': self.join_seq,
         })
         await self.remove_self()
+        await self.check_room_empty()
 
     async def receive(self, text_data):
         try:
@@ -168,3 +277,15 @@ class RoomConsumer(AsyncWebsocketConsumer):
             camera_device_id=camera_id,
             microphone_device_id=mic_id,
         )
+
+    @database_sync_to_async
+    def clear_last_empty_at(self):
+        Room.objects.filter(slug=self.room_slug).update(last_empty_at=None)
+
+    @database_sync_to_async
+    def check_room_empty(self):
+        from django.utils import timezone
+        room = Room.objects.filter(slug=self.room_slug, is_active=True).first()
+        if room and not RoomParticipant.objects.filter(room=room).exists():
+            room.last_empty_at = timezone.now()
+            room.save(update_fields=['last_empty_at'])

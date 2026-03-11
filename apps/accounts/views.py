@@ -11,7 +11,7 @@ def register_view(request):
         if form.is_valid():
             user = form.save()
             login(request, user)
-            return redirect('room_list')
+            return redirect('server_list')
     else:
         form = RegisterForm()
     return render(request, 'accounts/register.html', {'form': form})
@@ -22,7 +22,7 @@ def login_view(request):
         form = LoginForm(request, data=request.POST)
         if form.is_valid():
             login(request, form.get_user())
-            return redirect(request.GET.get('next', 'room_list'))
+            return redirect(request.GET.get('next', 'server_list'))
     else:
         form = LoginForm()
     return render(request, 'accounts/login.html', {'form': form})
@@ -34,13 +34,20 @@ def logout_view(request):
 
 
 @login_required
-def profile_view(request):
+def settings_view(request):
+    tab = request.GET.get('tab', 'account')
     if request.method == 'POST':
         form = ProfileForm(request.POST, request.FILES, instance=request.user)
         if form.is_valid():
             form.save()
             messages.success(request, 'Profile updated.')
-            return redirect('profile')
+            return redirect('settings')
     else:
         form = ProfileForm(instance=request.user)
-    return render(request, 'accounts/profile.html', {'form': form})
+    return render(request, 'accounts/settings.html', {'form': form, 'tab': tab})
+
+
+# Keep old profile URL working as redirect
+@login_required
+def profile_view(request):
+    return redirect('settings')

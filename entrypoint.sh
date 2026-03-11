@@ -150,15 +150,23 @@ fi
 echo "Running migrations..."
 python manage.py migrate --noinput
 
-echo "Creating test users..."
+echo "Creating test users and server..."
 python manage.py shell -c "
 from apps.accounts.models import User
+from apps.rooms.models import Server, ServerMember
 for name in ['test1', 'test2']:
     if not User.objects.filter(username=name).exists():
-        User.objects.create_user(username=name, password='Testing123.')
+        User.objects.create_user(username=name, password='Heksaper12.')
         print(f'  Created user: {name}')
     else:
         print(f'  User {name} already exists')
+test1 = User.objects.get(username='test1')
+test2 = User.objects.get(username='test2')
+server, created = Server.objects.get_or_create(name='Test Server', defaults={'owner': test1, 'is_public': True})
+if created:
+    print('  Created Test Server')
+ServerMember.objects.get_or_create(server=server, user=test1)
+ServerMember.objects.get_or_create(server=server, user=test2)
 "
 
 echo "Starting Daphne on 0.0.0.0:8000..."

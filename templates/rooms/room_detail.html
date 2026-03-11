@@ -1,45 +1,46 @@
 {% extends 'base.html' %}
 {% block title %}{{ room.name }}{% endblock %}
 {% block content %}
-<div class="d-flex justify-content-between align-items-center mb-3">
-    <h2>{{ room.name }}</h2>
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
     <div>
+        <h2 class="mb-0">{{ room.name }}</h2>
+        <small style="color:var(--text-muted)">
+            <i class="bi bi-people-fill me-1"></i>{{ participants|length }} participant{{ participants|length|pluralize }}
+        </small>
+    </div>
+    <div class="d-flex gap-2">
         {% if is_host %}
-        <form method="post" action="{% url 'room_delete' room.slug %}" class="d-inline"
+        <form method="post" action="{% url 'room_delete' server_slug=server.slug slug=room.slug %}" class="d-inline"
               onsubmit="return confirm('Close this room for everyone?')">
             {% csrf_token %}
-            <button class="btn btn-sm btn-danger me-2">Delete Room</button>
+            <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i>Delete</button>
         </form>
         {% endif %}
-        <form method="post" action="{% url 'room_leave' room.slug %}" class="d-inline">
+        <form method="post" action="{% url 'room_leave' server_slug=server.slug slug=room.slug %}" class="d-inline">
             {% csrf_token %}
-            <button class="btn btn-sm btn-outline-danger">Leave</button>
+            <button class="btn btn-sm btn-outline-secondary"><i class="bi bi-box-arrow-left me-1"></i>Leave</button>
         </form>
+        <a href="{% url 'server_detail' server_slug=server.slug %}" class="btn btn-sm btn-outline-secondary">
+            <i class="bi bi-arrow-left"></i>
+        </a>
     </div>
 </div>
 
-<!-- Device selector -->
-<div class="row mb-3">
-    <div class="col-md-4">
-        <label class="form-label">Camera</label>
-        <select id="cameraSelect" class="form-select"></select>
-    </div>
-    <div class="col-md-6">
-        <label class="form-label">Microphone</label>
-        <select id="micSelect" class="form-select"></select>
-    </div>
-</div>
 <button id="startBtn" class="d-none"></button>
 
 <!-- Media controls -->
-<div class="mb-3">
-    <button id="toggleMicBtn" class="btn btn-outline-secondary me-2">Mute Mic</button>
-    <button id="toggleCamBtn" class="btn btn-outline-secondary">Disable Camera</button>
+<div class="d-flex gap-2 mb-3">
+    <button id="toggleMicBtn" class="btn btn-outline-secondary">
+        <i class="bi bi-mic me-1"></i>Mute Mic
+    </button>
+    <button id="toggleCamBtn" class="btn btn-outline-secondary">
+        <i class="bi bi-camera-video me-1"></i>Disable Camera
+    </button>
 </div>
 
 <!-- Video grid -->
-<div id="videoGrid" class="row g-2">
-    <div class="col-md-6">
+<div id="videoGrid" class="row g-3">
+    <div class="col-md-6 col-lg-4">
         <div class="video-wrapper">
             <video id="localVideo" autoplay muted playsinline class="w-100 rounded bg-dark"></video>
             <div class="cam-placeholder" id="cam-placeholder-local">
@@ -50,29 +51,34 @@
                 <span class="media-icon cam-icon"><i class="bi bi-camera-video-off-fill text-danger"></i></span>
             </div>
         </div>
-        <p class="text-center mt-1"><strong>You ({{ request.user.username }})</strong></p>
+        <p class="text-center mt-1 mb-0"><strong style="font-size:0.85rem">You ({{ request.user.username }})</strong></p>
     </div>
 </div>
 
 <!-- Participants -->
 <div class="mt-4">
-    <h5>Participants</h5>
-    <ul id="participantList" class="list-group">
+    <h5 style="color:var(--text-secondary)"><i class="bi bi-people me-1"></i>Participants</h5>
+    <div id="participantList">
         {% for p in participants %}
-            <li class="list-group-item d-flex justify-content-between align-items-center"
-                id="participant-{{ p.user.username }}">
-                {{ p.user.username }}
-                {% if is_host and p.user != request.user %}
-                <div>
-                    <button class="btn btn-sm btn-outline-warning me-1"
-                            onclick="hostMute('{{ p.user.username|escapejs }}')">Mute</button>
-                    <button class="btn btn-sm btn-outline-danger"
-                            onclick="hostKick('{{ p.user.username|escapejs }}')">Kick</button>
-                </div>
+        <div class="room-card d-flex justify-content-between align-items-center mb-2"
+             id="participant-{{ p.user.username }}">
+            <div class="d-flex align-items-center gap-2">
+                {% if p.user.avatar %}
+                <img src="{{ p.user.avatar.url }}" class="rounded-circle" style="width:28px;height:28px;object-fit:cover" alt="">
                 {% endif %}
-            </li>
+                <strong>{{ p.user.username }}</strong>
+            </div>
+            {% if is_host and p.user != request.user %}
+            <div class="d-flex gap-1">
+                <button class="btn btn-sm btn-outline-warning"
+                        onclick="hostMute('{{ p.user.username|escapejs }}')"><i class="bi bi-mic-mute"></i></button>
+                <button class="btn btn-sm btn-outline-danger"
+                        onclick="hostKick('{{ p.user.username|escapejs }}')"><i class="bi bi-x-lg"></i></button>
+            </div>
+            {% endif %}
+        </div>
         {% endfor %}
-    </ul>
+    </div>
 </div>
 {% endblock %}
 

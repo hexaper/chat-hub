@@ -1,0 +1,173 @@
+{% extends 'base.html' %}
+{% block title %}{{ server.name }}{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
+    <div>
+        <div class="d-flex align-items-center gap-2">
+            <h2 class="mb-0">{{ server.name }}</h2>
+            {% if server.is_public %}
+            <span class="badge bg-success">Public</span>
+            {% else %}
+            <span class="badge bg-secondary">Private</span>
+            {% endif %}
+        </div>
+        {% if server.description %}
+        <p class="mb-0 mt-1" style="color:var(--text-muted)">{{ server.description }}</p>
+        {% endif %}
+        <small style="color:var(--text-muted)"><i class="bi bi-people me-1"></i>{{ member_count }} member{{ member_count|pluralize }}</small>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+        <a href="{% url 'room_create' server_slug=server.slug %}" class="btn btn-primary btn-sm">
+            <i class="bi bi-plus-lg me-1"></i>New Room
+        </a>
+        {% if is_owner %}
+        <a href="{% url 'server_settings' server_slug=server.slug %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-gear"></i>
+        </a>
+        {% else %}
+        <form method="post" action="{% url 'server_leave' server_slug=server.slug %}" class="d-inline"
+              onsubmit="return confirm('Leave this server?')">
+            {% csrf_token %}
+            <button class="btn btn-outline-danger btn-sm"><i class="bi bi-box-arrow-left"></i></button>
+        </form>
+        {% endif %}
+        <a href="{% url 'server_list' %}" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-arrow-left"></i>
+        </a>
+    </div>
+</div>
+
+{% if is_owner %}
+<div class="invite-bar d-flex align-items-center justify-content-between flex-wrap gap-2 mb-3">
+    <div class="d-flex align-items-center gap-2">
+        <i class="bi bi-link-45deg" style="color:var(--accent)"></i>
+        <code id="inviteLink" class="user-select-all">{{ request.scheme }}://{{ request.get_host }}/servers/join/?code={{ server.invite_code }}</code>
+    </div>
+    <button class="btn btn-sm btn-outline-secondary" onclick="navigator.clipboard.writeText(document.getElementById('inviteLink').textContent).then(() => {this.innerHTML='<i class=\'bi bi-check2\'></i> Copied'; setTimeout(() => this.innerHTML='<i class=\'bi bi-clipboard\'></i> Copy', 2000)})">
+        <i class="bi bi-clipboard"></i> Copy
+    </button>
+</div>
+{% endif %}
+
+<div class="row mt-3 g-3">
+    <!-- Rooms column -->
+    <div class="col-lg-7">
+        <h5 class="mb-3" style="color:var(--text-secondary)"><i class="bi bi-grid me-1"></i>Rooms</h5>
+        {% for room in rooms %}
+        <div class="room-card d-flex justify-content-between align-items-center mb-2">
+            <div>
+                <strong>{{ room.name }}</strong>
+                {% if room.is_password_protected %}
+                <i class="bi bi-lock-fill ms-1" style="color:var(--text-muted); font-size:0.8em" title="Password protected"></i>
+                {% endif %}
+                <small class="ms-2" style="color:var(--text-muted)">by {{ room.host.username }}</small>
+                <small class="ms-2" style="color:var(--text-muted)">
+                    <i class="bi bi-people-fill me-1"></i>{{ room.participants.count }}
+                </small>
+            </div>
+            <a href="{% url 'room_detail' server_slug=server.slug slug=room.slug %}" class="btn btn-sm btn-success">Join</a>
+        </div>
+        {% empty %}
+        <div class="text-center py-4" style="color:var(--text-muted)">
+            <i class="bi bi-door-open" style="font-size:2rem"></i>
+            <p class="mt-2 mb-0">No active rooms yet</p>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Chat column -->
+    <div class="col-lg-5">
+        <h5 class="mb-3" style="color:var(--text-secondary)"><i class="bi bi-chat-dots me-1"></i>Chat</h5>
+        <div class="card">
+            <div id="chatMessages" class="card-body server-chat-messages"></div>
+            <div class="card-footer p-2">
+                <form id="chatForm" class="d-flex gap-2" autocomplete="off">
+                    <input type="text" id="chatInput" class="form-control form-control-sm"
+                           placeholder="Type a message..." maxlength="2000">
+                    <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-send"></i></button>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+(function() {
+    const SERVER_SLUG = "{{ server.slug|escapejs }}";
+    const USERNAME = "{{ request.user.username|escapejs }}";
+    const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const chatUrl = `${wsProto}://${window.location.host}/ws/chat/${SERVER_SLUG}/`;
+
+    const messagesDiv = document.getElementById('chatMessages');
+    const chatForm = document.getElementById('chatForm');
+    const chatInput = document.getElementById('chatInput');
+    let socket = null;
+
+    function escapeHtml(text) {
+        const d = document.createElement('div');
+        d.textContent = text;
+        return d.innerHTML;
+    }
+
+    function formatTime(iso) {
+        const d = new Date(iso);
+        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function avatarHtml(msg) {
+        if (msg.avatar_url) {
+            return `<img src="${escapeHtml(msg.avatar_url)}" class="chat-avatar" alt="">`;
+        }
+        const letter = msg.username.charAt(0).toUpperCase();
+        return `<div class="chat-avatar chat-avatar-placeholder">${escapeHtml(letter)}</div>`;
+    }
+
+    function appendMessage(msg) {
+        const isOwn = msg.username === USERNAME;
+        const el = document.createElement('div');
+        el.className = 'chat-msg d-flex gap-2 mb-2';
+        el.innerHTML =
+            avatarHtml(msg) +
+            `<div class="flex-grow-1 min-width-0">` +
+            `<div class="d-flex justify-content-between align-items-baseline">` +
+            `<strong style="color:${isOwn ? 'var(--accent-hover)' : 'var(--text-primary)'}; font-size:0.85rem">${escapeHtml(msg.username)}</strong>` +
+            `<small style="color:var(--text-muted); font-size:0.75rem">${formatTime(msg.created_at)}</small>` +
+            `</div>` +
+            `<div class="chat-msg-content">${escapeHtml(msg.content)}</div>` +
+            `</div>`;
+        messagesDiv.appendChild(el);
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+
+    function connect() {
+        socket = new WebSocket(chatUrl);
+
+        socket.onmessage = function(e) {
+            const data = JSON.parse(e.data);
+            if (data.type === 'history') {
+                messagesDiv.innerHTML = '';
+                data.messages.forEach(appendMessage);
+            } else if (data.type === 'chat_message') {
+                appendMessage(data);
+            }
+        };
+
+        socket.onclose = function() {
+            setTimeout(connect, 3000);
+        };
+    }
+
+    chatForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        const text = chatInput.value.trim();
+        if (!text || !socket || socket.readyState !== WebSocket.OPEN) return;
+        socket.send(JSON.stringify({ type: 'chat_message', content: text }));
+        chatInput.value = '';
+    });
+
+    connect();
+})();
+</script>
+{% endblock %}
