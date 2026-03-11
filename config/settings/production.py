@@ -40,7 +40,7 @@ STORAGES = {
             'region_name': _s3_region,
             'endpoint_url': _s3_endpoint,
             'custom_domain': _s3_custom_domain,
-            'default_acl': 'public-read',
+            'default_acl': None,
             'querystring_auth': False,
             'signature_version': 's3v4',
         },
