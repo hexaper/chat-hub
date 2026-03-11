@@ -24,5 +24,5 @@ urlpatterns = [
     path('admin-panel/', views.admin_panel, name='admin_panel'),
     path('admin-panel/delete-server/<uuid:server_slug>/', views.admin_delete_server, name='admin_delete_server'),
     path('admin-panel/delete-room/<uuid:server_slug>/<uuid:slug>/', views.admin_delete_room, name='admin_delete_room'),
-    path('admin-panel/delete-user/', views.admin_delete_user, name='admin_delete_user'),
+    path('admin-panel/delete-user/<int:user_id>/', views.admin_delete_user, name='admin_delete_user'),
 ]

@@ -20,7 +20,7 @@
         <a href="{% url 'room_create' server_slug=server.slug %}" class="btn btn-primary btn-sm">
             <i class="bi bi-plus-lg me-1"></i>New Room
         </a>
-        {% if is_owner or request.user.username == 'admin' %}
+        {% if is_owner or request.user.is_staff %}
         <a href="{% url 'server_settings' server_slug=server.slug %}" class="btn btn-outline-secondary btn-sm">
             <i class="bi bi-gear"></i>
         </a>
@@ -63,7 +63,7 @@
                 {% endif %}
                 <small class="ms-2" style="color:var(--text-muted)">by {{ room.host.username }}</small>
                 <small class="ms-2" style="color:var(--text-muted)">
-                    <i class="bi bi-people-fill me-1"></i>{{ room.participants.count }}
+                    <i class="bi bi-people-fill me-1"></i>{{ room.participant_count }}
                 </small>
             </div>
             <a href="{% url 'room_detail' server_slug=server.slug slug=room.slug %}" class="btn btn-sm btn-success">Join</a>

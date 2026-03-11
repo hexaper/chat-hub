@@ -103,7 +103,7 @@
                     </div>
                     {% if m.user != server.owner %}
                     <form method="post" action="{% url 'server_kick_member' server_slug=server.slug %}"
-                          onsubmit="return confirm('Remove {{ m.user.username }} from this server?')">
+                          onsubmit="return confirm('Remove {{ m.user.username|escapejs }} from this server?')">
                         {% csrf_token %}
                         <input type="hidden" name="user_id" value="{{ m.user.id }}">
                         <button class="btn btn-sm btn-outline-danger"><i class="bi bi-x-lg"></i></button>

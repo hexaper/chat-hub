@@ -361,6 +361,10 @@ function setupPeerConnection(targetChannel, username) {
 
     pc.oniceconnectionstatechange = () => {
         console.log(`[WebRTC] ICE state for ${username}: ${pc.iceConnectionState}`);
+        if (pc.iceConnectionState === 'failed') {
+            console.warn(`[WebRTC] ICE failed for ${username}, attempting restart`);
+            pc.restartIce();
+        }
     };
 
     remoteStreams[targetChannel] = new MediaStream();

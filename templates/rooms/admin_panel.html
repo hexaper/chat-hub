@@ -64,7 +64,7 @@
                 <i class="bi bi-gear me-1"></i>Settings
             </a>
             <form method="post" action="{% url 'admin_delete_server' server_slug=server.slug %}"
-                  onsubmit="return confirm('Delete server \'{{ server.name }}\' and all its rooms/messages?')">
+                  onsubmit="return confirm('Delete server \'{{ server.name|escapejs }}\' and all its rooms/messages?')">
                 {% csrf_token %}
                 <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash me-1"></i>Delete</button>
             </form>
@@ -72,9 +72,7 @@
     </div>
 
     <!-- Active rooms in this server -->
-    {% with rooms=server.rooms.all %}
-    {% for room in rooms %}
-    {% if room.is_active %}
+    {% for room in server.active_rooms %}
     <div class="d-flex justify-content-between align-items-center px-3 py-2" style="border-bottom:1px solid var(--border-color)">
         <div>
             <i class="bi bi-camera-video me-2" style="color:var(--text-muted)"></i>
@@ -88,14 +86,12 @@
             </small>
         </div>
         <form method="post" action="{% url 'admin_delete_room' server_slug=server.slug slug=room.slug %}"
-              onsubmit="return confirm('Close room \'{{ room.name }}\'?')">
+              onsubmit="return confirm('Close room \'{{ room.name|escapejs }}\'?')">
             {% csrf_token %}
             <button class="btn btn-sm btn-outline-danger"><i class="bi bi-x-lg"></i></button>
         </form>
     </div>
-    {% endif %}
     {% endfor %}
-    {% endwith %}
 
     <!-- Members -->
     <div class="card-body">
@@ -141,7 +137,7 @@
                 {% endif %}
                 <div>
                     <strong>{{ u.username }}</strong>
-                    {% if u.username == 'admin' %}
+                    {% if u.is_staff %}
                     <span class="badge bg-primary ms-1">Admin</span>
                     {% endif %}
                     {% if u.email %}
@@ -159,11 +155,10 @@
                     {% endif %}
                 </div>
             </div>
-            {% if u.username != 'admin' %}
-            <form method="post" action="{% url 'admin_delete_user' %}"
-                  onsubmit="return confirm('Delete user \'{{ u.username }}\'? This will remove them from all servers. This cannot be undone.')">
+            {% if not u.is_staff %}
+            <form method="post" action="{% url 'admin_delete_user' user_id=u.id %}"
+                  onsubmit="return confirm('Delete user \'{{ u.username|escapejs }}\'? This will remove them from all servers. This cannot be undone.')">
                 {% csrf_token %}
-                <input type="hidden" name="user_id" value="{{ u.id }}">
                 <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
             </form>
             {% endif %}
@@ -187,11 +182,10 @@
                 <img src="{{ user.avatar.url }}" class="rounded-circle" style="width:20px;height:20px;object-fit:cover" alt="">
                 {% endif %}
                 <span>{{ user.username }}</span>
-                {% if user.username != 'admin' %}
-                <form method="post" action="{% url 'admin_delete_user' %}" class="d-inline ms-1"
-                      onsubmit="return confirm('Delete user \'{{ user.username }}\'? This cannot be undone.')">
+                {% if not user.is_staff %}
+                <form method="post" action="{% url 'admin_delete_user' user_id=user.id %}" class="d-inline ms-1"
+                      onsubmit="return confirm('Delete user \'{{ user.username|escapejs }}\'? This cannot be undone.')">
                     {% csrf_token %}
-                    <input type="hidden" name="user_id" value="{{ user.id }}">
                     <button class="btn btn-sm p-0 border-0" style="color:var(--danger);background:none;font-size:0.75rem">
                         <i class="bi bi-x-lg"></i>
                     </button>
