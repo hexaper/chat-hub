@@ -27,6 +27,7 @@ RUN SECRET_KEY=build-placeholder \
     ALLOWED_HOSTS=localhost \
     POSTGRES_NAME=x POSTGRES_USER=x POSTGRES_PASS=x POSTGRES_HOST=x \
     REDIS_HOST=redis://localhost:6379 \
+    AWS_STORAGE_BUCKET_NAME=x AWS_ACCESS_KEY_ID=x AWS_SECRET_ACCESS_KEY=x \
     python manage.py collectstatic --noinput
 
 EXPOSE 8000

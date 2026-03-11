@@ -55,6 +55,12 @@ Requires a `.env` file or environment variables:
 | `POSTGRES_USER` | Yes | Database user |
 | `POSTGRES_PASS` | Yes | Database password |
 | `REDIS_HOST` | Yes | Redis URL (e.g. `rediss://default:token@host:6379`) |
+| `AWS_STORAGE_BUCKET_NAME` | Yes | S3 bucket name for media uploads (avatars) |
+| `AWS_ACCESS_KEY_ID` | Yes | S3 access key |
+| `AWS_SECRET_ACCESS_KEY` | Yes | S3 secret key |
+| `AWS_S3_REGION_NAME` | No | S3 region (default: `us-east-1`) |
+| `AWS_S3_ENDPOINT_URL` | No | Custom S3 endpoint (for Cloudflare R2, MinIO, etc.) |
+| `AWS_S3_CUSTOM_DOMAIN` | No | Custom domain for serving media |
 | `SECURE_SSL_REDIRECT` | No | `true` or `false` (default: `false`) |
 | `TEST_USER_PASSWORD` | No | If set, creates test1/test2 users with this password |
 | `CSRF_TRUSTED_ORIGINS` | No | Comma-separated origins (e.g. `https://myapp.koyeb.app`) |
@@ -69,6 +75,9 @@ POSTGRES_NAME=mydb
 POSTGRES_USER=admin
 POSTGRES_PASS=mypassword
 REDIS_HOST=rediss://default:token@my-redis.upstash.io:6379
+AWS_STORAGE_BUCKET_NAME=my-avatars
+AWS_ACCESS_KEY_ID=AKIA...
+AWS_SECRET_ACCESS_KEY=your-secret-key
 SECURE_SSL_REDIRECT=false
 TEST_USER_PASSWORD=MyTestPass123.
 ```
