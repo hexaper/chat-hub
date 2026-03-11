@@ -4,9 +4,10 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-# Install build dependencies for Pillow and psycopg2
+# Install build + runtime dependencies for Pillow and psycopg2
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq-dev libjpeg-dev zlib1g-dev curl && \
+    libpq-dev libjpeg-dev zlib1g-dev curl \
+    libjpeg62-turbo libwebp7 && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -24,6 +25,8 @@ RUN mkdir -p /app/mediafiles/server_avatars /app/mediafiles/avatars
 RUN SECRET_KEY=build-placeholder \
     DJANGO_SETTINGS_MODULE=config.settings.production \
     ALLOWED_HOSTS=localhost \
+    POSTGRES_NAME=x POSTGRES_USER=x POSTGRES_PASS=x POSTGRES_HOST=x \
+    REDIS_HOST=redis://localhost:6379 \
     python manage.py collectstatic --noinput
 
 EXPOSE 8000
