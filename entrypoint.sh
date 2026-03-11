@@ -43,8 +43,7 @@ for name in ['test1', 'test2']:
         print(f'  User {name} already exists')
 test1 = User.objects.get(username='test1')
 test2 = User.objects.get(username='test2')
-if created:
-    print('  Created Test Server')
+
 ServerMember.objects.get_or_create(server=server, user=test1)
 ServerMember.objects.get_or_create(server=server, user=test2)
 "
