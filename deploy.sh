@@ -129,7 +129,7 @@ from apps.accounts.models import User
 from apps.rooms.models import Server, ServerMember
 for name in ['test1', 'test2']:
     if not User.objects.filter(username=name).exists():
-        User.objects.create_user(username=name, password='Heksaper12.')
+        User.objects.create_user(username=name, password='Tester123.')
         print(f'    Created: {name}')
     else:
         print(f'    Exists:  {name}')
