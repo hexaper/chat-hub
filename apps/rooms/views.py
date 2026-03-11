@@ -27,7 +27,7 @@ def server_list(request):
 @login_required
 def server_create(request):
     if request.method == 'POST':
-        form = ServerForm(request.POST)
+        form = ServerForm(request.POST, request.FILES)
         if form.is_valid():
             server = form.save(commit=False)
             server.owner = request.user
@@ -92,7 +92,7 @@ def server_settings(request, server_slug):
     members = ServerMember.objects.filter(server=server).select_related('user').order_by('joined_at')
 
     if request.method == 'POST':
-        form = ServerSettingsForm(request.POST, instance=server)
+        form = ServerSettingsForm(request.POST, request.FILES, instance=server)
         if form.is_valid():
             form.save()
             messages.success(request, 'Server settings updated.')

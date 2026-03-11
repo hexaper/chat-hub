@@ -16,6 +16,7 @@ class Server(models.Model):
     owner = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='owned_servers'
     )
+    avatar = models.ImageField(upload_to='server_avatars/', blank=True, null=True)
     description = models.TextField(blank=True)
     is_public = models.BooleanField(default=False)
     invite_code = models.CharField(max_length=8, unique=True, default=generate_invite_code)

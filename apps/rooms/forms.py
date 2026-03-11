@@ -5,7 +5,7 @@ from .models import Room, Server
 class ServerForm(forms.ModelForm):
     class Meta:
         model = Server
-        fields = ('name', 'description', 'is_public')
+        fields = ('name', 'avatar', 'description', 'is_public')
         widgets = {
             'description': forms.Textarea(attrs={'rows': 3}),
         }
@@ -14,7 +14,7 @@ class ServerForm(forms.ModelForm):
 class ServerSettingsForm(forms.ModelForm):
     class Meta:
         model = Server
-        fields = ('name', 'description', 'is_public')
+        fields = ('name', 'avatar', 'description', 'is_public')
         widgets = {
             'description': forms.Textarea(attrs={'rows': 3}),
         }

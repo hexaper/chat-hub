@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load static %}
 {% block title %}Servers{% endblock %}
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-4">
@@ -9,42 +10,71 @@
     </div>
 </div>
 
-{% for server in my_servers %}
-<div class="card mb-2">
-    <div class="card-body d-flex justify-content-between align-items-center">
-        <div>
-            <strong>{{ server.name }}</strong>
-            {% if server.is_public %}
-            <span class="badge bg-success ms-2">Public</span>
-            {% else %}
-            <span class="badge bg-secondary ms-2">Private</span>
-            {% endif %}
-            <small class="text-muted ms-2">Owner: {{ server.owner.username }}</small>
-        </div>
-        <a href="{% url 'server_detail' server_slug=server.slug %}" class="btn btn-sm btn-success">Open</a>
+<div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-lg-4 g-3 mb-5">
+    {% for server in my_servers %}
+    <div class="col">
+        <a href="{% url 'server_detail' server_slug=server.slug %}" class="text-decoration-none">
+            <div class="card server-card h-100">
+                <div class="server-card-img-wrap">
+                    {% if server.avatar %}
+                    <img src="{{ server.avatar.url }}" alt="{{ server.name }}" class="server-card-img">
+                    {% else %}
+                    <div class="server-card-placeholder">
+                        <span>{{ server.name|truncatechars:1 }}</span>
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="card-body p-2">
+                    <h6 class="card-title mb-1 text-body">{{ server.name }}</h6>
+                    {% if server.description %}
+                    <p class="card-text text-muted small mb-1">{{ server.description|truncatewords:12 }}</p>
+                    {% endif %}
+                    <div>
+                        {% if server.is_public %}
+                        <span class="badge bg-success">Public</span>
+                        {% else %}
+                        <span class="badge bg-secondary">Private</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </a>
     </div>
+    {% empty %}
+    <div class="col-12">
+        <p class="text-muted">You haven't joined any servers yet. Create one or join with an invite code!</p>
+    </div>
+    {% endfor %}
 </div>
-{% empty %}
-<p class="text-muted">You haven't joined any servers yet. Create one or join with an invite code!</p>
-{% endfor %}
 
 {% if public_servers %}
-<h2 class="mt-5 mb-3">Public Servers</h2>
-{% for server in public_servers %}
-<div class="card mb-2">
-    <div class="card-body d-flex justify-content-between align-items-center">
-        <div>
-            <strong>{{ server.name }}</strong>
-            <span class="badge bg-success ms-2">Public</span>
-            <small class="text-muted ms-2">Owner: {{ server.owner.username }}</small>
-            {% if server.description %}
-            <br><small class="text-muted">{{ server.description|truncatewords:20 }}</small>
-            {% endif %}
-        </div>
-        <a href="{% url 'server_detail' server_slug=server.slug %}" class="btn btn-sm btn-outline-primary">Join</a>
+<h2 class="mb-3">Public Servers</h2>
+<div class="row row-cols-1 row-cols-sm-2 row-cols-md-3 row-cols-lg-4 g-3">
+    {% for server in public_servers %}
+    <div class="col">
+        <a href="{% url 'server_detail' server_slug=server.slug %}" class="text-decoration-none">
+            <div class="card server-card h-100">
+                <div class="server-card-img-wrap">
+                    {% if server.avatar %}
+                    <img src="{{ server.avatar.url }}" alt="{{ server.name }}" class="server-card-img">
+                    {% else %}
+                    <div class="server-card-placeholder">
+                        <span>{{ server.name|truncatechars:1 }}</span>
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="card-body p-2">
+                    <h6 class="card-title mb-1 text-body">{{ server.name }}</h6>
+                    {% if server.description %}
+                    <p class="card-text text-muted small mb-1">{{ server.description|truncatewords:12 }}</p>
+                    {% endif %}
+                    <small class="text-muted">by {{ server.owner.username }}</small>
+                </div>
+            </div>
+        </a>
     </div>
+    {% endfor %}
 </div>
-{% endfor %}
 {% endif %}
 
 <!-- Join by invite code modal -->
