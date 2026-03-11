@@ -88,14 +88,15 @@
 <div class="modal fade" id="joinModal" tabindex="-1">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
-            <form method="get" action="{% url 'server_join' %}">
+            <form method="post" action="{% url 'server_join' %}">
+                {% csrf_token %}
                 <div class="modal-header border-0 pb-0">
                     <h5 class="modal-title">Join a Server</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
                     <label class="form-label" for="inviteCode">Invite Code</label>
-                    <input type="text" class="form-control" id="inviteCode" name="code"
+                    <input type="text" class="form-control" id="inviteCode" name="invite_code"
                            placeholder="e.g. Ab3xK9mZ" required maxlength="8">
                 </div>
                 <div class="modal-footer border-0 pt-0">

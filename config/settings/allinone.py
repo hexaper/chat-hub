@@ -4,7 +4,7 @@ import os
 DEBUG = False
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '*').split(',')
 
-SECRET_KEY = os.environ.get('SECRET_KEY', 'insecure-dev-key-change-me')
+SECRET_KEY = os.environ['SECRET_KEY']
 
 DATABASES = {
     'default': {
@@ -36,6 +36,9 @@ STORAGES = {
         'BACKEND': 'whitenoise.storage.CompressedManifestStaticFilesStorage',
     },
 }
+
+# Serve media from filesystem (no S3 in all-in-one mode)
+SERVE_MEDIA_LOCALLY = True
 
 # Security — relaxed for local/self-hosted use
 SECURE_SSL_REDIRECT = os.environ.get('SECURE_SSL_REDIRECT', 'false').lower() == 'true'

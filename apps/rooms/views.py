@@ -1,22 +1,27 @@
 from datetime import timedelta
 from functools import wraps
+from io import BytesIO
 
 from asgiref.sync import async_to_sync
 from channels.layers import get_channel_layer
-from django.shortcuts import render, get_object_or_404, redirect
+from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
-from django.utils import timezone
+from django.db.models import Count, Prefetch
 from django.http import JsonResponse
+from django.shortcuts import render, get_object_or_404, redirect
+from django.utils import timezone
 from django.views.decorators.http import require_POST as require_post_method
+from PIL import Image
 
-from apps.accounts.models import User
 from .models import Server, ServerMember, Room, RoomParticipant, ChatMessage
 from .forms import ServerForm, ServerSettingsForm, RoomForm, RoomPasswordForm
 
+User = get_user_model()
+
 
 def _is_admin(user):
-    return user.is_authenticated and user.username == 'admin'
+    return user.is_authenticated and user.is_staff
 
 
 def admin_required(view_func):
@@ -77,7 +82,9 @@ def server_detail(request, server_slug):
         last_empty_at__isnull=False, last_empty_at__lte=threshold,
     ).update(is_active=False)
 
-    rooms = Room.objects.filter(server=server, is_active=True)
+    rooms = Room.objects.filter(server=server, is_active=True).annotate(
+        participant_count=Count('roomparticipant')
+    )
     is_owner = server.owner == request.user
     member_count = ServerMember.objects.filter(server=server).count()
 
@@ -90,8 +97,9 @@ def server_detail(request, server_slug):
 
 
 @login_required
+@require_post_method
 def server_join(request):
-    code = request.GET.get('code') or request.POST.get('invite_code')
+    code = request.POST.get('invite_code')
     if code:
         try:
             server = Server.objects.get(invite_code=code)
@@ -295,8 +303,15 @@ def chat_image_upload(request, server_slug):
     if image.size > 5 * 1024 * 1024:
         return JsonResponse({'error': 'Image too large (max 5MB)'}, status=400)
 
-    allowed_types = ('image/jpeg', 'image/png', 'image/gif', 'image/webp')
-    if image.content_type not in allowed_types:
+    # Validate actual image content (not just Content-Type header)
+    try:
+        img = Image.open(image)
+        img.verify()
+        image.seek(0)
+    except Exception:
+        return JsonResponse({'error': 'Invalid image file'}, status=400)
+
+    if img.format not in ('JPEG', 'PNG', 'GIF', 'WEBP'):
         return JsonResponse({'error': 'Invalid image type'}, status=400)
 
     msg = ChatMessage.objects.create(
@@ -316,6 +331,7 @@ def chat_image_upload(request, server_slug):
 def admin_panel(request):
     servers = Server.objects.prefetch_related(
         'servermember_set__user',
+        Prefetch('rooms', queryset=Room.objects.filter(is_active=True), to_attr='active_rooms'),
     ).all().order_by('-created_at')
 
     # All users with their server names
@@ -371,11 +387,10 @@ def admin_delete_room(request, server_slug, slug):
 
 @admin_required
 @require_post_method
-def admin_delete_user(request):
-    user_id = request.POST.get('user_id')
+def admin_delete_user(request, user_id):
     user = get_object_or_404(User, id=user_id)
-    if user.username == 'admin':
-        messages.error(request, "Cannot delete the admin account.")
+    if user.is_staff:
+        messages.error(request, "Cannot delete an admin account.")
     else:
         username = user.username
         user.delete()
