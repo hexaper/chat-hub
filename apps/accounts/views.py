@@ -34,13 +34,20 @@ def logout_view(request):
 
 
 @login_required
-def profile_view(request):
+def settings_view(request):
+    tab = request.GET.get('tab', 'account')
     if request.method == 'POST':
         form = ProfileForm(request.POST, request.FILES, instance=request.user)
         if form.is_valid():
             form.save()
             messages.success(request, 'Profile updated.')
-            return redirect('profile')
+            return redirect('settings')
     else:
         form = ProfileForm(instance=request.user)
-    return render(request, 'accounts/profile.html', {'form': form})
+    return render(request, 'accounts/settings.html', {'form': form, 'tab': tab})
+
+
+# Keep old profile URL working as redirect
+@login_required
+def profile_view(request):
+    return redirect('settings')

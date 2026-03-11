@@ -14,18 +14,12 @@ const remoteAudioElements = {}; // channel -> { element, stream }
 const pendingCandidates = {};   // channel -> RTCIceCandidateInit[]
 let vadLoopId = null;
 
-// ── Device enumeration ──────────────────────────────────────────────────────
+// ── Device preferences (from Settings page, stored in localStorage) ──────────
+function getPreferredCamera() { return localStorage.getItem('preferredCamera') || ''; }
+function getPreferredMic() { return localStorage.getItem('preferredMic') || ''; }
+
 async function enumerateDevices() {
     const devices = await navigator.mediaDevices.enumerateDevices();
-    const cameraSelect = document.getElementById('cameraSelect');
-    const micSelect = document.getElementById('micSelect');
-
-    devices.forEach(d => {
-        const opt = new Option(d.label || `${d.kind} (${d.deviceId.slice(0, 8)})`, d.deviceId);
-        if (d.kind === 'videoinput') cameraSelect.appendChild(opt);
-        if (d.kind === 'audioinput') micSelect.appendChild(opt);
-    });
-
     for (const d of devices) {
         if (d.kind !== 'videoinput' && d.kind !== 'audioinput') continue;
         try {
@@ -58,8 +52,8 @@ function getBlackVideoTrack() {
 
 // ── Start call ──────────────────────────────────────────────────────────────
 async function startCall() {
-    const cameraId = document.getElementById('cameraSelect').value;
-    const micId = document.getElementById('micSelect').value;
+    const cameraId = getPreferredCamera();
+    const micId = getPreferredMic();
 
     localStream = await navigator.mediaDevices.getUserMedia({
         video: cameraId ? { deviceId: { exact: cameraId } } : true,
