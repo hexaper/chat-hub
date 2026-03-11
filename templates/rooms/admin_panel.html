@@ -124,9 +124,57 @@
 </div>
 {% endfor %}
 
+<!-- All registered users -->
+<div class="card mt-4 mb-4">
+    <div class="card-header d-flex justify-content-between align-items-center">
+        <span><i class="bi bi-people-fill me-2"></i>All Registered Users</span>
+        <span class="badge bg-secondary">{{ total_users }}</span>
+    </div>
+    <ul class="list-group list-group-flush">
+        {% for u in all_users %}
+        <li class="list-group-item d-flex justify-content-between align-items-center">
+            <div class="d-flex align-items-center gap-2">
+                {% if u.avatar %}
+                <img src="{{ u.avatar.url }}" class="rounded-circle" style="width:36px;height:36px;object-fit:cover" alt="">
+                {% else %}
+                <div class="chat-avatar chat-avatar-placeholder">{{ u.username|truncatechars:1 }}</div>
+                {% endif %}
+                <div>
+                    <strong>{{ u.username }}</strong>
+                    {% if u.username == 'admin' %}
+                    <span class="badge bg-primary ms-1">Admin</span>
+                    {% endif %}
+                    {% if u.email %}
+                    <small class="ms-2" style="color:var(--text-muted)">{{ u.email }}</small>
+                    {% endif %}
+                    <br>
+                    <small style="color:var(--text-muted)">
+                        Joined {{ u.date_joined|date:"M d, Y" }}
+                        {% if u.bio %} &middot; {{ u.bio|truncatewords:10 }}{% endif %}
+                    </small>
+                    {% if u.server_list %}
+                    <br><small style="color:var(--text-secondary)">
+                        <i class="bi bi-collection me-1"></i>{{ u.server_list }}
+                    </small>
+                    {% endif %}
+                </div>
+            </div>
+            {% if u.username != 'admin' %}
+            <form method="post" action="{% url 'admin_delete_user' %}"
+                  onsubmit="return confirm('Delete user \'{{ u.username }}\'? This will remove them from all servers. This cannot be undone.')">
+                {% csrf_token %}
+                <input type="hidden" name="user_id" value="{{ u.id }}">
+                <button class="btn btn-sm btn-outline-danger"><i class="bi bi-trash"></i></button>
+            </form>
+            {% endif %}
+        </li>
+        {% endfor %}
+    </ul>
+</div>
+
 <!-- Users without a server -->
 {% if users_without_server %}
-<div class="card mt-4">
+<div class="card mb-4">
     <div class="card-header">
         <i class="bi bi-person-x me-2"></i>Users Not in Any Server
         <span class="badge bg-secondary ms-1">{{ users_without_server.count }}</span>

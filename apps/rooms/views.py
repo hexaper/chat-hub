@@ -286,6 +286,12 @@ def admin_panel(request):
         'servermember_set__user',
     ).all().order_by('-created_at')
 
+    # All users with their server names
+    all_users = User.objects.prefetch_related('joined_servers').order_by('-date_joined')
+    for u in all_users:
+        server_names = [s.name for s in u.joined_servers.all()]
+        u.server_list = ', '.join(server_names) if server_names else ''
+
     # Users not in any server
     users_without_server = User.objects.exclude(
         id__in=ServerMember.objects.values_list('user_id', flat=True)
@@ -297,6 +303,7 @@ def admin_panel(request):
 
     return render(request, 'rooms/admin_panel.html', {
         'servers': servers,
+        'all_users': all_users,
         'users_without_server': users_without_server,
         'total_users': total_users,
         'total_servers': total_servers,
