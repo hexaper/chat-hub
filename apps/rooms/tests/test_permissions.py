@@ -67,4 +67,33 @@ class PermissionTests(TestCase):
         with self.assertRaises(Server.DoesNotExist):
             Server.objects.get(slug=self.server.slug)
 
-    # Add more permission tests
+    def test_password_protected_room_shows_password_form_to_member(self):
+        """Member accessing a password-protected room sees the password form (not room detail)."""
+        self.server.members.add(self.user)
+        self.room.set_password('secret123')
+        self.room.save()
+        self.client.login(username='testuser', password='Tester123.')
+        response = self.client.get(reverse('room_detail', args=[self.server.slug, self.room.slug]))
+        # Should render the password form page, not a redirect
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'password', response.content.lower())
+
+    def test_non_owner_cannot_kick_member(self):
+        """Non-owner POSTing to server_kick_member gets 404."""
+        self.server.members.add(self.user)
+        self.server.members.add(self.other_user)
+        self.client.login(username='testuser', password='Tester123.')
+        response = self.client.post(
+            reverse('server_kick_member', args=[self.server.slug]),
+            {'user_id': self.other_user.id},
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_non_owner_cannot_delete_server(self):
+        """Non-owner POSTing to server_delete gets 404."""
+        self.server.members.add(self.user)
+        self.client.login(username='testuser', password='Tester123.')
+        response = self.client.post(reverse('server_delete', args=[self.server.slug]))
+        self.assertEqual(response.status_code, 404)
+        # Server must still exist
+        self.assertTrue(Server.objects.filter(slug=self.server.slug).exists())

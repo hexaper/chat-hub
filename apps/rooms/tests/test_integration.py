@@ -42,4 +42,57 @@ class IntegrationTests(TestCase):
         response = self.client.get(reverse('server_detail', args=[server.slug]))
         self.assertEqual(response.status_code, 302)  # Redirect to server_list
 
-    # Add more integration tests
+    def test_full_room_entry_with_password(self):
+        """Wrong password fails; correct password grants access."""
+        owner = User.objects.create_user(username='owner', password='Tester123.')
+        server = Server.objects.create(name='PwdServer', owner=owner)
+        ServerMember.objects.create(server=server, user=owner)
+        ServerMember.objects.create(server=server, user=self.user)
+
+        from apps.rooms.models import Room
+        room = Room.objects.create(name='SecureRoom', server=server, host=owner)
+        room.set_password('correct123')
+        room.save()
+
+        self.client.login(username='testuser', password='Tester123.')
+
+        # Wrong password attempt
+        response = self.client.post(
+            reverse('room_detail', args=[server.slug, room.slug]),
+            {'password': 'wrongpass'},
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b'password', response.content.lower())
+
+        # Correct password
+        response = self.client.post(
+            reverse('room_detail', args=[server.slug, room.slug]),
+            {'password': 'correct123'},
+        )
+        # After correct password the view grants access (redirects or renders room)
+        self.assertIn(response.status_code, [200, 302])
+        # Verify session auth was set
+        session_key = f'room_auth_{room.slug}'
+        self.assertTrue(self.client.session.get(session_key))
+
+    def test_server_invite_flow(self):
+        """User A creates server → user B joins via invite code → B is now a member."""
+        user_b = User.objects.create_user(username='userb', password='Tester123.')
+
+        self.client.login(username='testuser', password='Tester123.')
+        response = self.client.post(reverse('server_create'), {
+            'name': 'InviteServer',
+            'description': '',
+            'is_public': False,
+        })
+        self.assertEqual(response.status_code, 302)
+        server = Server.objects.get(name='InviteServer')
+        invite_code = server.invite_code
+
+        # User B joins via invite code
+        client_b = self.client_class()
+        client_b.login(username='userb', password='Tester123.')
+        response = client_b.post(reverse('server_join'), {'invite_code': invite_code})
+        self.assertEqual(response.status_code, 302)
+
+        self.assertTrue(ServerMember.objects.filter(server=server, user=user_b).exists())
