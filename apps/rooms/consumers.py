@@ -4,7 +4,7 @@ from asgiref.sync import sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
 from utils.ratelimit import is_rate_limited
-from .models import Room, RoomParticipant, Server, ServerMember, ChatMessage
+from .models import Room, RoomParticipant, Server, ServerMember, ChatMessage, RoomChatMessage
 
 
 class ServerChatConsumer(AsyncWebsocketConsumer):
@@ -331,3 +331,109 @@ class RoomConsumer(AsyncWebsocketConsumer):
         if room and not RoomParticipant.objects.filter(room=room).exists():
             room.last_empty_at = timezone.now()
             room.save(update_fields=['last_empty_at'])
+
+
+class RoomChatConsumer(AsyncWebsocketConsumer):
+    async def connect(self):
+        self.room_slug = self.scope['url_route']['kwargs']['slug']
+        self.chat_group = f'room_chat_{self.room_slug}'
+        self.user = self.scope['user']
+
+        if not self.user.is_authenticated:
+            await self.close()
+            return
+
+        if not await self.is_participant():
+            await self.close()
+            return
+
+        await self.channel_layer.group_add(self.chat_group, self.channel_name)
+        await self.accept()
+
+        history = await self.get_history()
+        await self.send(text_data=json.dumps({
+            'type': 'history',
+            'messages': history,
+        }))
+
+    async def disconnect(self, code):
+        if hasattr(self, 'chat_group'):
+            await self.channel_layer.group_discard(self.chat_group, self.channel_name)
+
+    async def receive(self, text_data):
+        try:
+            data = json.loads(text_data)
+        except json.JSONDecodeError:
+            return
+
+        if data.get('type') == 'chat_message':
+            content = data.get('content', '').strip()
+            if not content:
+                return
+            if await sync_to_async(is_rate_limited)('room_chat', self.user.pk, '30/m'):
+                return
+            msg = await self.save_message(content)
+            await self.channel_layer.group_send(self.chat_group, {
+                'type': 'chat_message',
+                'id': msg['id'],
+                'username': msg['username'],
+                'avatar_url': msg['avatar_url'],
+                'content': msg['content'],
+                'created_at': msg['created_at'],
+            })
+
+    async def chat_message(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'chat_message',
+            'id': event['id'],
+            'username': event['username'],
+            'avatar_url': event['avatar_url'],
+            'content': event['content'],
+            'created_at': event['created_at'],
+        }))
+
+    @database_sync_to_async
+    def is_participant(self):
+        try:
+            rp = RoomParticipant.objects.select_related('room').get(
+                room__slug=self.room_slug, user=self.user, room__is_active=True
+            )
+            self.room_id = rp.room_id
+            return True
+        except RoomParticipant.DoesNotExist:
+            return False
+
+    @staticmethod
+    def _avatar_url(user):
+        if user.avatar and hasattr(user.avatar, 'url'):
+            return user.avatar.url
+        return ''
+
+    @database_sync_to_async
+    def get_history(self):
+        msgs = RoomChatMessage.objects.filter(
+            room__slug=self.room_slug
+        ).select_related('user').order_by('-created_at')[:50]
+        return [
+            {
+                'id': m.id,
+                'username': m.user.username,
+                'avatar_url': self._avatar_url(m.user),
+                'content': m.content,
+                'created_at': m.created_at.isoformat(),
+            }
+            for m in reversed(list(msgs))
+        ]
+
+    @database_sync_to_async
+    def save_message(self, content):
+        msg = RoomChatMessage.objects.create(
+            room_id=self.room_id, user=self.user, content=content[:2000]
+        )
+        return {
+            'id': msg.id,
+            'username': self.user.username,
+            'avatar_url': self._avatar_url(self.user),
+            'content': msg.content,
+            'created_at': msg.created_at.isoformat(),
+        }

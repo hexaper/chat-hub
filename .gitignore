@@ -26,3 +26,7 @@ mediafiles
 dump.rdb
 .secret_key
 .github
+comms
+.gitignore
+ssl.key
+ssl.crt

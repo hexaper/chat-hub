@@ -28,56 +28,77 @@
 
 <button id="startBtn" class="d-none"></button>
 
-<!-- Media controls -->
-<div class="d-flex gap-2 mb-3">
-    <button id="toggleMicBtn" class="btn btn-outline-secondary">
-        <i class="bi bi-mic me-1"></i>Mute Mic
-    </button>
-    <button id="toggleCamBtn" class="btn btn-outline-secondary">
-        <i class="bi bi-camera-video me-1"></i>Disable Camera
-    </button>
-</div>
+<!-- Spotlight area (hidden until a tile is spotlighted) -->
+<div id="spotlightArea" class="d-none mb-3"></div>
 
 <!-- Video grid -->
-<div id="videoGrid" class="row g-3">
-    <div class="col-md-6 col-lg-4">
+<div id="videoGrid">
+    <div class="video-tile" onclick="toggleSpotlight(this)">
         <div class="video-wrapper">
             <video id="localVideo" autoplay muted playsinline class="w-100 rounded bg-dark"></video>
             <div class="cam-placeholder" id="cam-placeholder-local">
                 <i class="bi bi-camera-video-off"></i>
             </div>
-            <div class="media-icons" id="media-icons-local">
-                <span class="media-icon mic-icon"><i class="bi bi-mic-mute-fill text-danger"></i></span>
-                <span class="media-icon cam-icon"><i class="bi bi-camera-video-off-fill text-danger"></i></span>
+            <div class="media-icons local-controls" id="media-icons-local">
+                <span class="media-icon mic-icon" onclick="event.stopPropagation(); toggleMic()" title="Toggle microphone">
+                    <i class="bi bi-mic-mute-fill text-danger"></i>
+                </span>
+                <span class="media-icon cam-icon" onclick="event.stopPropagation(); toggleCam()" title="Toggle camera">
+                    <i class="bi bi-camera-video-off-fill text-danger"></i>
+                </span>
             </div>
         </div>
         <p class="text-center mt-1 mb-0"><strong style="font-size:0.85rem">You ({{ request.user.username }})</strong></p>
     </div>
 </div>
 
-<!-- Participants -->
-<div class="mt-4">
-    <h5 style="color:var(--text-secondary)"><i class="bi bi-people me-1"></i>Participants</h5>
-    <div id="participantList">
-        {% for p in participants %}
-        <div class="room-card d-flex justify-content-between align-items-center mb-2"
-             id="participant-{{ p.user.username }}">
-            <div class="d-flex align-items-center gap-2">
-                {% if p.user.avatar %}
-                <img src="{{ p.user.avatar.url }}" class="rounded-circle" style="width:28px;height:28px;object-fit:cover" alt="">
+<!-- Participants + Chat -->
+<div class="row mt-4 g-3">
+    <div class="col-lg-4">
+        <h5 style="color:var(--text-secondary)"><i class="bi bi-people me-1"></i>Participants</h5>
+        <div id="participantList">
+            {% for p in participants %}
+            <div class="room-card d-flex justify-content-between align-items-center mb-2"
+                 id="participant-{{ p.user.username }}">
+                <div class="d-flex align-items-center gap-2">
+                    {% if p.user.avatar %}
+                    <img src="{{ p.user.avatar.url }}" class="rounded-circle" style="width:28px;height:28px;object-fit:cover" alt="">
+                    {% endif %}
+                    <strong>{{ p.user.username }}</strong>
+                </div>
+                {% if p.user != request.user %}
+                <div class="d-flex gap-1">
+                    <button id="local-mute-{{ p.user.username }}"
+                            class="btn btn-sm btn-outline-secondary" title="Mute for me"
+                            onclick="localMuteToggle('{{ p.user.username|escapejs }}')">
+                        <i class="bi bi-volume-up"></i>
+                    </button>
+                    {% if is_host %}
+                    <button class="btn btn-sm btn-outline-warning" title="Force mute for everyone"
+                            onclick="hostMute('{{ p.user.username|escapejs }}')"><i class="bi bi-mic-mute"></i></button>
+                    <button class="btn btn-sm btn-outline-danger" title="Kick"
+                            onclick="hostKick('{{ p.user.username|escapejs }}')"><i class="bi bi-x-lg"></i></button>
+                    {% endif %}
+                </div>
                 {% endif %}
-                <strong>{{ p.user.username }}</strong>
             </div>
-            {% if is_host and p.user != request.user %}
-            <div class="d-flex gap-1">
-                <button class="btn btn-sm btn-outline-warning" title="Mute"
-                        onclick="hostMute('{{ p.user.username|escapejs }}')"><i class="bi bi-mic-mute"></i></button>
-                <button class="btn btn-sm btn-outline-danger" title="Kick"
-                        onclick="hostKick('{{ p.user.username|escapejs }}')"><i class="bi bi-x-lg"></i></button>
-            </div>
-            {% endif %}
+            {% endfor %}
         </div>
-        {% endfor %}
+    </div>
+
+    <div class="col-lg-8">
+        <h5 style="color:var(--text-secondary)"><i class="bi bi-chat-dots me-1"></i>Room Chat</h5>
+        {% csrf_token %}
+        <div class="card">
+            <div id="roomChatMessages" class="card-body server-chat-messages"></div>
+            <div class="card-footer p-2">
+                <form id="roomChatForm" class="d-flex gap-2" autocomplete="off">
+                    <input type="text" id="roomChatInput" class="form-control form-control-sm"
+                           placeholder="Type a message..." maxlength="2000">
+                    <button type="submit" class="btn btn-sm btn-primary" title="Send"><i class="bi bi-send"></i></button>
+                </form>
+            </div>
+        </div>
     </div>
 </div>
 {% endblock %}
@@ -91,4 +112,79 @@
 </script>
 {% load static %}
 <script src="{% static 'js/webrtc.js' %}"></script>
+<script>
+(function() {
+    const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws';
+    const chatUrl = `${wsProto}://${window.location.host}/ws/room-chat/${ROOM_SLUG}/`;
+    const USERNAME = "{{ request.user.username|escapejs }}";
+
+    const messagesDiv = document.getElementById('roomChatMessages');
+    const chatForm = document.getElementById('roomChatForm');
+    const chatInput = document.getElementById('roomChatInput');
+    let socket = null;
+
+    function escapeHtml(text) {
+        const d = document.createElement('div');
+        d.textContent = text;
+        return d.innerHTML;
+    }
+
+    function formatTime(iso) {
+        const d = new Date(iso);
+        return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    }
+
+    function avatarHtml(msg) {
+        if (msg.avatar_url) {
+            return `<img src="${escapeHtml(msg.avatar_url)}" class="chat-avatar" alt="">`;
+        }
+        return `<div class="chat-avatar chat-avatar-placeholder">${escapeHtml(msg.username.charAt(0).toUpperCase())}</div>`;
+    }
+
+    function appendMessage(msg) {
+        const isOwn = msg.username === USERNAME;
+        const el = document.createElement('div');
+        el.className = 'chat-msg d-flex gap-2 mb-2';
+        el.innerHTML =
+            avatarHtml(msg) +
+            `<div class="flex-grow-1 min-width-0">` +
+            `<div class="d-flex justify-content-between align-items-baseline">` +
+            `<strong style="color:${isOwn ? 'var(--accent-hover)' : 'var(--text-primary)'}; font-size:0.85rem">${escapeHtml(msg.username)}</strong>` +
+            `<small style="color:var(--text-muted); font-size:0.75rem">${formatTime(msg.created_at)}</small>` +
+            `</div>` +
+            `<div class="chat-msg-content">${escapeHtml(msg.content)}</div>` +
+            `</div>`;
+        messagesDiv.appendChild(el);
+        messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+
+    function connect() {
+        socket = new WebSocket(chatUrl);
+
+        socket.onmessage = function(e) {
+            const data = JSON.parse(e.data);
+            if (data.type === 'history') {
+                messagesDiv.innerHTML = '';
+                data.messages.forEach(appendMessage);
+            } else if (data.type === 'chat_message') {
+                appendMessage(data);
+            }
+        };
+
+        socket.onclose = function() {
+            setTimeout(connect, 3000);
+        };
+    }
+
+    chatForm.addEventListener('submit', function(e) {
+        e.preventDefault();
+        const text = chatInput.value.trim();
+        if (!text || !socket || socket.readyState !== WebSocket.OPEN) return;
+        socket.send(JSON.stringify({ type: 'chat_message', content: text }));
+        chatInput.value = '';
+    });
+
+    connect();
+})();
+</script>
 {% endblock %}

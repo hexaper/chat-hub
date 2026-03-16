@@ -100,6 +100,19 @@ class ChatMessage(models.Model):
         return f"{self.user.username}: {self.content[:50]}"
 
 
+class RoomChatMessage(models.Model):
+    room = models.ForeignKey(Room, on_delete=models.CASCADE, related_name='chat_messages')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    content = models.TextField(max_length=2000)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['created_at']
+
+    def __str__(self):
+        return f"{self.user.username}: {self.content[:50]}"
+
+
 class RoomParticipant(models.Model):
     room = models.ForeignKey(Room, on_delete=models.CASCADE)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)

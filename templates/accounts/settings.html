@@ -8,14 +8,12 @@
 <!-- Tabs -->
 <ul class="nav nav-tabs mb-4" role="tablist">
     <li class="nav-item">
-        <a class="nav-link {% if tab == 'account' %}active{% endif %}" href="?tab=account"
-           id="account-tab" data-bs-toggle="tab" data-bs-target="#accountPane" role="tab">
+        <a class="nav-link {% if tab == 'account' %}active{% endif %}" href="?tab=account">
             <i class="bi bi-person me-1"></i>Account
         </a>
     </li>
     <li class="nav-item">
-        <a class="nav-link {% if tab == 'media' %}active{% endif %}" href="?tab=media"
-           id="media-tab" data-bs-toggle="tab" data-bs-target="#mediaPane" role="tab">
+        <a class="nav-link {% if tab == 'media' %}active{% endif %}" href="?tab=media">
             <i class="bi bi-camera-video me-1"></i>Camera & Audio
         </a>
     </li>
@@ -116,6 +114,13 @@
 
     // ── Enumerate devices ─────────────────────────────────────
     async function loadDevices() {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.enumerateDevices) {
+            cameraSelect.innerHTML = '<option>Not available — HTTPS required</option>';
+            micSelect.innerHTML = '<option>Not available — HTTPS required</option>';
+            micStatus.textContent = 'Media devices require a secure connection (HTTPS). See server setup instructions.';
+            return;
+        }
+
         // Need permission first to get labels
         try {
             const tempStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: true });
@@ -241,23 +246,16 @@
         setTimeout(() => saved.classList.add('d-none'), 2000);
     });
 
-    // Clean up streams when leaving page
+    // Stop streams when leaving the page
     window.addEventListener('beforeunload', () => {
         stopCameraPreview();
         stopMicPreview();
     });
 
-    // Also clean up when switching tabs
-    document.getElementById('account-tab').addEventListener('shown.bs.tab', () => {
-        stopCameraPreview();
-        stopMicPreview();
-    });
-    document.getElementById('media-tab').addEventListener('shown.bs.tab', () => {
-        if (cameraSelect.value) startCameraPreview(cameraSelect.value);
-        if (micSelect.value) startMicPreview(micSelect.value);
-    });
-
-    loadDevices();
+    // Only activate devices when the media tab is the active page
+    if (document.getElementById('mediaPane').classList.contains('active')) {
+        loadDevices();
+    }
 })();
 </script>
 {% endblock %}

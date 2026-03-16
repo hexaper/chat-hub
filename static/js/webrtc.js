@@ -11,7 +11,9 @@ let blackVideoTrack = null;
 let blackCanvas = null;     // held to prevent GC killing the canvas stream
 const remoteStreams = {};   // channel -> MediaStream we build ourselves
 const remoteAudioElements = {}; // channel -> { element, stream }
+const localMutedUsers = new Set(); // usernames muted locally (client-side only)
 const pendingCandidates = {};   // channel -> RTCIceCandidateInit[]
+const pendingMediaStates = {};  // channel -> { mic, cam } received before video element existed
 let vadLoopId = null;
 
 // ── Device preferences (from Settings page, stored in localStorage) ──────────
@@ -22,6 +24,7 @@ async function enumerateDevices() {
     const devices = await navigator.mediaDevices.enumerateDevices();
     for (const d of devices) {
         if (d.kind !== 'videoinput' && d.kind !== 'audioinput') continue;
+        if (!d.deviceId) continue;
         try {
             await fetch('/devices/register/', {
                 method: 'POST',
@@ -55,52 +58,48 @@ async function startCall() {
     const cameraId = getPreferredCamera();
     const micId = getPreferredMic();
 
-    localStream = await navigator.mediaDevices.getUserMedia({
-        video: cameraId ? { deviceId: { exact: cameraId } } : true,
-        audio: micId ? { deviceId: { exact: micId } } : true,
-    });
+    try {
+        localStream = await navigator.mediaDevices.getUserMedia({
+            video: cameraId ? { deviceId: { exact: cameraId } } : true,
+            audio: micId ? { deviceId: { exact: micId } } : true,
+        });
+    } catch (e) {
+        // Stored device ID no longer valid — fall back to system defaults
+        if (cameraId) localStorage.removeItem('preferredCamera');
+        if (micId) localStorage.removeItem('preferredMic');
+        try {
+            localStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+        } catch (e2) {
+            // No media available at all — join with no local tracks so the user
+            // can still see and hear other participants
+            console.warn('[Media] No camera/mic available, joining without local media:', e2);
+            localStream = new MediaStream();
+        }
+    }
 
     // Mic starts muted; camera preview stays live locally but peers get black track
     localStream.getAudioTracks().forEach(t => { t.enabled = false; });
     cameraEnabled = false;
 
-    setMicBtn(false);
-    setCamBtn(false);
-
     document.getElementById('localVideo').srcObject = localStream;
     updateMediaIcons('local', false, false);
-    startVAD('local', localStream);
+    if (localStream.getAudioTracks().length > 0) startVAD('local', localStream);
     connectWebSocket(cameraId, micId);
 }
 
 document.getElementById('startBtn').addEventListener('click', startCall);
 
-// ── Mic / camera toggle ───────────────────────────────────────────────────────
-function setMicBtn(enabled) {
-    const btn = document.getElementById('toggleMicBtn');
-    btn.textContent = enabled ? 'Mute Mic' : 'Unmute Mic';
-    btn.classList.toggle('btn-outline-secondary', enabled);
-    btn.classList.toggle('btn-danger', !enabled);
-}
-
-function setCamBtn(enabled) {
-    const btn = document.getElementById('toggleCamBtn');
-    btn.textContent = enabled ? 'Disable Camera' : 'Enable Camera';
-    btn.classList.toggle('btn-outline-secondary', enabled);
-    btn.classList.toggle('btn-danger', !enabled);
-}
-
-document.getElementById('toggleMicBtn').addEventListener('click', () => {
+// ── Mic / camera toggle (called from icon clicks on the local tile) ───────────
+function toggleMic() {
     if (!localStream) return;
     const audioTrack = localStream.getAudioTracks()[0];
     if (!audioTrack) return;
     audioTrack.enabled = !audioTrack.enabled;
-    setMicBtn(audioTrack.enabled);
     updateMediaIcons('local', audioTrack.enabled, cameraEnabled);
     broadcastMediaState();
-});
+}
 
-document.getElementById('toggleCamBtn').addEventListener('click', async () => {
+async function toggleCam() {
     if (!localStream) return;
     cameraEnabled = !cameraEnabled;
     const videoTrack = localStream.getVideoTracks()[0];
@@ -111,10 +110,9 @@ document.getElementById('toggleCamBtn').addEventListener('click', async () => {
         if (sender) await sender.replaceTrack(trackToSend);
     }
 
-    setCamBtn(cameraEnabled);
     updateMediaIcons('local', localStream.getAudioTracks()[0]?.enabled ?? false, cameraEnabled);
     broadcastMediaState();
-});
+}
 
 // ── Media state icons ────────────────────────────────────────────────────────
 function updateMediaIcons(id, micOn, camOn) {
@@ -149,6 +147,32 @@ function hostMute(username) {
     const channel = userChannels[username];
     if (!channel || !socket) return;
     socket.send(JSON.stringify({ type: 'mute_user', target_channel: channel }));
+}
+
+// ── Local mute (client-side only) ────────────────────────────────────────────
+function localMuteToggle(username) {
+    const channel = userChannels[username];
+    if (localMutedUsers.has(username)) {
+        localMutedUsers.delete(username);
+        if (channel && remoteAudioElements[channel]) {
+            remoteAudioElements[channel].element.muted = false;
+        }
+    } else {
+        localMutedUsers.add(username);
+        if (channel && remoteAudioElements[channel]) {
+            remoteAudioElements[channel].element.muted = true;
+        }
+    }
+    updateLocalMuteBtn(username);
+}
+
+function updateLocalMuteBtn(username) {
+    const btn = document.getElementById(`local-mute-${username}`);
+    if (!btn) return;
+    const muted = localMutedUsers.has(username);
+    btn.title = muted ? 'Unmute for me' : 'Mute for me';
+    btn.className = muted ? 'btn btn-sm btn-warning' : 'btn btn-sm btn-outline-secondary';
+    btn.querySelector('i').className = muted ? 'bi bi-volume-mute' : 'bi bi-volume-up';
 }
 
 // ── Voice activity detection ─────────────────────────────────────────────────
@@ -264,6 +288,8 @@ function connectWebSocket(cameraId, micId) {
                 } catch (e) {
                     console.error('[WebRTC] createOffer failed:', e);
                 }
+                // Re-broadcast our media state so the new joiner knows our current mic/cam status
+                broadcastMediaState();
             }
 
         } else if (msg.type === 'user_left') {
@@ -316,14 +342,17 @@ function connectWebSocket(cameraId, micId) {
                 const audioTrack = localStream.getAudioTracks()[0];
                 if (audioTrack) {
                     audioTrack.enabled = false;
-                    setMicBtn(false);
                     updateMediaIcons('local', false, cameraEnabled);
                     broadcastMediaState();
                 }
             }
 
         } else if (msg.type === 'media_state' && msg.channel !== myChannel) {
-            updateMediaIcons(msg.channel, msg.mic, msg.cam);
+            if (document.getElementById(`media-icons-${msg.channel}`)) {
+                updateMediaIcons(msg.channel, msg.mic, msg.cam);
+            } else {
+                pendingMediaStates[msg.channel] = { mic: msg.mic, cam: msg.cam };
+            }
 
         } else if (msg.type === 'room_closed') {
             socket.close();
@@ -360,8 +389,15 @@ function setupPeerConnection(targetChannel, username) {
     };
 
     pc.oniceconnectionstatechange = () => {
-        console.log(`[WebRTC] ICE state for ${username}: ${pc.iceConnectionState}`);
-        if (pc.iceConnectionState === 'failed') {
+        const state = pc.iceConnectionState;
+        console.log(`[WebRTC] ICE state for ${username}: ${state}`);
+        if (state === 'connected' || state === 'completed') {
+            // Broadcast our current media state now that the connection is live.
+            // This is more reliable than relying on a pre-connection media_state
+            // message arriving before ontrack fires.
+            broadcastMediaState();
+        }
+        if (state === 'failed') {
             console.warn(`[WebRTC] ICE failed for ${username}, attempting restart`);
             pc.restartIce();
         }
@@ -379,6 +415,8 @@ function setupPeerConnection(targetChannel, username) {
             audioEl.id = `audio-${targetChannel}`;
             audioEl.srcObject = audioStream;
             audioEl.autoplay = true;
+            // Apply local mute if user was muted before this audio track arrived
+            if (localMutedUsers.has(username)) audioEl.muted = true;
             document.body.appendChild(audioEl);
             remoteAudioElements[targetChannel] = { element: audioEl, stream: audioStream };
             startVAD(targetChannel, audioStream);
@@ -437,12 +475,36 @@ async function handleOffer(offer, senderChannel, username) {
     socket.send(JSON.stringify({ type: 'answer', target: senderChannel, payload: answer }));
 }
 
+function toggleSpotlight(tile) {
+    const spotlightArea = document.getElementById('spotlightArea');
+    const videoGrid = document.getElementById('videoGrid');
+
+    if (tile.classList.contains('spotlighted')) {
+        // Un-spotlight: return tile to grid
+        tile.classList.remove('spotlighted');
+        videoGrid.appendChild(tile);
+        spotlightArea.classList.add('d-none');
+    } else {
+        // Return any existing spotlight tile to the grid first
+        const current = spotlightArea.querySelector('.video-tile');
+        if (current) {
+            current.classList.remove('spotlighted');
+            videoGrid.appendChild(current);
+        }
+        // Move chosen tile into spotlight
+        tile.classList.add('spotlighted');
+        spotlightArea.classList.remove('d-none');
+        spotlightArea.appendChild(tile);
+    }
+}
+
 function addRemoteVideo(channel, username, stream) {
     if (document.getElementById(`video-${channel}`)) return;
 
     const col = document.createElement('div');
-    col.className = 'col-md-6';
     col.id = `video-${channel}`;
+    col.className = 'video-tile';
+    col.addEventListener('click', () => toggleSpotlight(col));
 
     const wrapper = document.createElement('div');
     wrapper.className = 'video-wrapper';
@@ -452,7 +514,9 @@ function addRemoteVideo(channel, username, stream) {
     video.muted = true;
     video.setAttribute('playsinline', '');
     video.className = 'w-100 rounded bg-dark';
-    video.srcObject = stream;
+    // Video-only stream avoids autoplay restrictions triggered by audio tracks
+    video.srcObject = new MediaStream(stream.getVideoTracks());
+    video.play().catch(() => {});
 
     const placeholder = document.createElement('div');
     placeholder.className = 'cam-placeholder';
@@ -467,6 +531,13 @@ function addRemoteVideo(channel, username, stream) {
         <span class="media-icon cam-icon"><i class="bi bi-camera-video-off-fill text-danger"></i></span>`;
 
     wrapper.append(video, placeholder, icons);
+
+    // Apply any media state that arrived before this element existed
+    if (pendingMediaStates[channel]) {
+        const { mic, cam } = pendingMediaStates[channel];
+        delete pendingMediaStates[channel];
+        updateMediaIcons(channel, mic, cam);
+    }
 
     const label = document.createElement('p');
     label.className = 'text-center mt-1';
@@ -490,7 +561,13 @@ function removePeer(channel) {
     }
     const pc = peers[channel];
     if (pc) { pc.close(); delete peers[channel]; }
-    document.getElementById(`video-${channel}`)?.remove();
+    const tile = document.getElementById(`video-${channel}`);
+    if (tile) {
+        if (tile.classList.contains('spotlighted')) {
+            document.getElementById('spotlightArea').classList.add('d-none');
+        }
+        tile.remove();
+    }
 }
 
 // ── Participant list helpers ──────────────────────────────────────────────────
@@ -502,20 +579,35 @@ function addParticipantToList(username) {
     li.id = `participant-${username}`;
     li.textContent = username;  // XSS-safe
 
-    if (IS_HOST && username !== USERNAME) {
+    if (username !== USERNAME) {
         const div = document.createElement('div');
+        div.className = 'd-flex gap-1';
 
-        const muteBtn = document.createElement('button');
-        muteBtn.className = 'btn btn-sm btn-outline-warning me-1';
-        muteBtn.textContent = 'Mute';
-        muteBtn.addEventListener('click', () => hostMute(username));
+        const localMuteBtn = document.createElement('button');
+        localMuteBtn.id = `local-mute-${username}`;
+        localMuteBtn.className = 'btn btn-sm btn-outline-secondary';
+        localMuteBtn.title = 'Mute for me';
+        localMuteBtn.innerHTML = '<i class="bi bi-volume-up"></i>';
+        localMuteBtn.addEventListener('click', () => localMuteToggle(username));
 
-        const kickBtn = document.createElement('button');
-        kickBtn.className = 'btn btn-sm btn-outline-danger';
-        kickBtn.textContent = 'Kick';
-        kickBtn.addEventListener('click', () => hostKick(username));
+        div.appendChild(localMuteBtn);
 
-        div.append(muteBtn, kickBtn);
+        if (IS_HOST) {
+            const muteBtn = document.createElement('button');
+            muteBtn.className = 'btn btn-sm btn-outline-warning';
+            muteBtn.title = 'Force mute for everyone';
+            muteBtn.innerHTML = '<i class="bi bi-mic-mute"></i>';
+            muteBtn.addEventListener('click', () => hostMute(username));
+
+            const kickBtn = document.createElement('button');
+            kickBtn.className = 'btn btn-sm btn-outline-danger';
+            kickBtn.title = 'Kick';
+            kickBtn.innerHTML = '<i class="bi bi-x-lg"></i>';
+            kickBtn.addEventListener('click', () => hostKick(username));
+
+            div.append(muteBtn, kickBtn);
+        }
+
         li.appendChild(div);
     }
 

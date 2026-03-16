@@ -406,7 +406,6 @@ code {
 
 video {
     background: var(--bg-secondary);
-    min-height: 200px;
     object-fit: cover;
     border-radius: var(--radius);
     outline: 3px solid transparent;
@@ -419,8 +418,18 @@ video.speaking {
 
 .video-wrapper {
     position: relative;
+    width: 100%;
+    aspect-ratio: 16 / 9;
     border-radius: var(--radius);
     overflow: hidden;
+    background: var(--bg-secondary);
+}
+
+.video-wrapper video {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
 }
 
 .media-icons {
@@ -430,6 +439,20 @@ video.speaking {
     display: flex;
     gap: 5px;
     pointer-events: none;
+}
+
+.media-icons.local-controls {
+    pointer-events: auto;
+}
+
+.media-icons.local-controls .media-icon {
+    cursor: pointer;
+    transition: background 0.15s, transform 0.15s;
+}
+
+.media-icons.local-controls .media-icon:hover {
+    background: rgba(255, 255, 255, 0.25);
+    transform: scale(1.12);
 }
 
 .media-icon {
@@ -457,7 +480,42 @@ video.speaking {
 }
 
 #videoGrid {
-    min-height: 220px;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 1rem;
+    align-items: start;
+}
+
+.video-tile {
+    cursor: pointer;
+}
+
+.video-tile .video-wrapper::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: var(--radius);
+    background: transparent;
+    transition: background 0.15s;
+    pointer-events: none;
+}
+
+.video-tile:hover .video-wrapper::after {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+/* Spotlight area — centered above the grid */
+#spotlightArea {
+    display: flex;
+    justify-content: center;
+}
+
+#spotlightArea .video-tile {
+    width: min(640px, 100%);
+}
+
+.video-tile.spotlighted .video-wrapper {
+    outline: 2px solid var(--accent);
 }
 
 /* Room controls */
