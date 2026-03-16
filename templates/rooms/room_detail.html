@@ -21,7 +21,7 @@
             <button class="btn btn-sm btn-outline-secondary"><i class="bi bi-box-arrow-left me-1"></i>Leave</button>
         </form>
         <a href="{% url 'server_detail' server_slug=server.slug %}" class="btn btn-sm btn-outline-secondary">
-            <i class="bi bi-arrow-left"></i>
+            <i class="bi bi-arrow-left me-1"></i>Back
         </a>
     </div>
 </div>
@@ -70,9 +70,9 @@
             </div>
             {% if is_host and p.user != request.user %}
             <div class="d-flex gap-1">
-                <button class="btn btn-sm btn-outline-warning"
+                <button class="btn btn-sm btn-outline-warning" title="Mute"
                         onclick="hostMute('{{ p.user.username|escapejs }}')"><i class="bi bi-mic-mute"></i></button>
-                <button class="btn btn-sm btn-outline-danger"
+                <button class="btn btn-sm btn-outline-danger" title="Kick"
                         onclick="hostKick('{{ p.user.username|escapejs }}')"><i class="bi bi-x-lg"></i></button>
             </div>
             {% endif %}

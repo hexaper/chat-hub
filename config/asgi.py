@@ -11,13 +11,7 @@ import apps.rooms.routing
 
 application = ProtocolTypeRouter({
     'http': get_asgi_application(),
-    'websocket': AuthMiddlewareStack(
-        URLRouter(apps.rooms.routing.websocket_urlpatterns)
-    ),
-})
-
-application = ProtocolTypeRouter({
     'websocket': AllowedHostsOriginValidator(
-        AuthMiddlewareStack(URLRouter(websocket_urlpatterns))
+        AuthMiddlewareStack(URLRouter(apps.rooms.routing.websocket_urlpatterns))
     ),
 })

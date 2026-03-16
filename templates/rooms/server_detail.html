@@ -22,18 +22,18 @@
         </a>
         {% if is_owner or request.user.is_staff %}
         <a href="{% url 'server_settings' server_slug=server.slug %}" class="btn btn-outline-secondary btn-sm">
-            <i class="bi bi-gear"></i>
+            <i class="bi bi-gear me-1"></i>Settings
         </a>
         {% endif %}
         {% if not is_owner %}
         <form method="post" action="{% url 'server_leave' server_slug=server.slug %}" class="d-inline"
               onsubmit="return confirm('Leave this server?')">
             {% csrf_token %}
-            <button class="btn btn-outline-danger btn-sm"><i class="bi bi-box-arrow-left"></i></button>
+            <button class="btn btn-outline-danger btn-sm"><i class="bi bi-box-arrow-left me-1"></i>Leave</button>
         </form>
         {% endif %}
         <a href="{% url 'server_list' %}" class="btn btn-outline-secondary btn-sm">
-            <i class="bi bi-arrow-left"></i>
+            <i class="bi bi-arrow-left me-1"></i>Back
         </a>
     </div>
 </div>
@@ -89,12 +89,12 @@
                 </div>
                 <form id="chatForm" class="d-flex gap-2" autocomplete="off">
                     <input type="file" id="chatImageInput" accept="image/jpeg,image/png,image/gif,image/webp" class="d-none">
-                    <button type="button" id="chatImageBtn" class="btn btn-sm btn-outline-secondary" title="Send image">
+                    <button type="button" id="chatImageBtn" class="btn btn-sm btn-outline-secondary" title="Attach image">
                         <i class="bi bi-image"></i>
                     </button>
                     <input type="text" id="chatInput" class="form-control form-control-sm"
                            placeholder="Type a message..." maxlength="2000">
-                    <button type="submit" class="btn btn-sm btn-primary"><i class="bi bi-send"></i></button>
+                    <button type="submit" class="btn btn-sm btn-primary" title="Send"><i class="bi bi-send"></i></button>
                 </form>
             </div>
         </div>
