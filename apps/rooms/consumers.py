@@ -1,7 +1,9 @@
 import json
 import time
+from asgiref.sync import sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
+from utils.ratelimit import is_rate_limited
 from .models import Room, RoomParticipant, Server, ServerMember, ChatMessage
 
 
@@ -44,6 +46,8 @@ class ServerChatConsumer(AsyncWebsocketConsumer):
         if msg_type == 'chat_message':
             content = data.get('content', '').strip()
             if not content:
+                return
+            if await sync_to_async(is_rate_limited)('chat', self.user.pk, '30/m'):
                 return
             msg = await self.save_message(content)
             await self.channel_layer.group_send(self.chat_group, {
