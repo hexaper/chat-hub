@@ -25,6 +25,13 @@ CHANNEL_LAYERS = {
     },
 }
 
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
+        'LOCATION': os.environ.get('REDIS_CACHE_URL', os.environ['REDIS_HOST'] + '/1'),
+    }
+}
+
 # Static files — served by whitenoise
 MIDDLEWARE.insert(1, 'whitenoise.middleware.WhiteNoiseMiddleware')
 _s3_region = os.environ.get('AWS_S3_REGION_NAME', 'us-east-1')

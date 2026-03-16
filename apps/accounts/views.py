@@ -4,9 +4,11 @@ from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.http import require_POST
+from utils.ratelimit import ratelimit
 from .forms import RegisterForm, LoginForm, ProfileForm
 
 
+@ratelimit(key='ip', rate='5/m')
 def register_view(request):
     if request.method == 'POST':
         form = RegisterForm(request.POST)
@@ -19,6 +21,7 @@ def register_view(request):
     return render(request, 'accounts/register.html', {'form': form})
 
 
+@ratelimit(key='ip', rate='5/m')
 def login_view(request):
     if request.method == 'POST':
         form = LoginForm(request, data=request.POST)

@@ -14,6 +14,7 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST as require_post_method
 from PIL import Image
 
+from utils.ratelimit import ratelimit
 from .models import Server, ServerMember, Room, RoomParticipant, ChatMessage
 from .forms import ServerForm, ServerSettingsForm, RoomForm, RoomPasswordForm
 
@@ -291,6 +292,7 @@ def room_delete(request, server_slug, slug):
 
 @login_required
 @require_post_method
+@ratelimit(key='user', rate='10/m')
 def chat_image_upload(request, server_slug):
     server = get_object_or_404(Server, slug=server_slug)
     if not ServerMember.objects.filter(server=server, user=request.user).exists():
