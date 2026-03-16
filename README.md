@@ -10,6 +10,7 @@ A real-time video conferencing and chat platform built with Django, Django Chann
 - [Architecture](#architecture)
 - [Prerequisites](#prerequisites)
 - [Quick Start (Local Development)](#quick-start-local-development)
+- [Testing](#testing)
 - [Docker Deployment](#docker-deployment)
   - [All-in-One Container](#all-in-one-container)
   - [Production (External Services)](#production-external-services)
@@ -133,6 +134,34 @@ Once running:
 | **Settings module** | `config.settings.development` |
 
 To stop the server, press `Ctrl+C`.
+
+## Testing
+
+The application includes a comprehensive test suite covering models, views, forms, permissions, integration flows, and WebSocket consumers.
+
+### Running Tests
+
+Ensure Redis is running, then activate the virtual environment and run the tests:
+
+```bash
+source venv/bin/activate
+python manage.py test --settings=config.settings.development --verbosity=1
+```
+
+- **Total Tests:** 58
+- **Coverage:** Models, views, forms, permissions, WebSocket consumers, and integration tests
+- **Database:** Uses an in-memory SQLite database for fast execution
+- **WebSocket Tests:** Test real-time chat, image sharing, authentication, and message broadcasting
+
+### Test Structure
+
+Tests are organized by app:
+
+- `apps/accounts/tests/` -- User registration, login, profile, and authentication boundaries
+- `apps/rooms/tests/` -- Server/room creation, permissions, chat messages, WebSocket consumers
+- `apps/devices/tests/` -- Device registration and management
+
+If tests fail, ensure Redis is running (`redis-cli ping` should return `PONG`) and all dependencies are installed.
 
 ### Manual Setup
 
