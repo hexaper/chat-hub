@@ -59,4 +59,12 @@ class PermissionTests(TestCase):
         response = self.client.get(reverse('room_detail', args=[self.server.slug, self.room.slug]))
         self.assertEqual(response.status_code, 200)
 
+    def test_server_owner_can_delete_server(self):
+        """Server owner can delete their server."""
+        self.client.login(username='other', password='Tester123.')  # owner
+        response = self.client.post(reverse('server_delete', args=[self.server.slug]))
+        self.assertEqual(response.status_code, 302)
+        with self.assertRaises(Server.DoesNotExist):
+            Server.objects.get(slug=self.server.slug)
+
     # Add more permission tests

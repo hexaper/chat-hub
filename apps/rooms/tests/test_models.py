@@ -44,4 +44,11 @@ class ModelLogicTests(TestCase):
         server = Server.objects.create(name='Server', owner=self.user)
         self.assertFalse(server.is_public)
 
+    def test_chat_message_creation(self):
+        """ChatMessage can be created."""
+        server = Server.objects.create(name='Server', owner=self.user)
+        message = server.messages.create(content='Hello', user=self.user)
+        self.assertEqual(message.content, 'Hello')
+        self.assertEqual(message.user, self.user)
+
     # Add more model tests

@@ -35,4 +35,11 @@ class IntegrationTests(TestCase):
         self.assertEqual(room.host, self.user)
         self.assertTrue(room.is_active)
 
+    def test_join_private_server_requires_invite(self):
+        """Cannot join private server without invite."""
+        server = Server.objects.create(name='Private', owner=self.user, is_public=False)
+        self.client.login(username='testuser', password='Tester123.')
+        response = self.client.get(reverse('server_detail', args=[server.slug]))
+        self.assertEqual(response.status_code, 302)  # Redirect to server_list
+
     # Add more integration tests

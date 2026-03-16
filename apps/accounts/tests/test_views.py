@@ -56,4 +56,27 @@ class AuthBoundaryTests(TestCase):
         response = self.client.get(reverse('admin_panel'))
         self.assertEqual(response.status_code, 302)
 
+    def test_server_join_requires_login(self):
+        """Server join requires login."""
+        response = self.client.get(reverse('server_join'))
+        self.assertEqual(response.status_code, 302)
+
+    def test_server_leave_requires_login(self):
+        """Server leave requires login."""
+        dummy_slug = '12345678-1234-5678-9012-123456789012'  # Valid UUID format
+        response = self.client.post(reverse('server_leave', args=[dummy_slug]))
+        self.assertEqual(response.status_code, 302)
+
+    def test_room_create_requires_login(self):
+        """Room create requires login."""
+        dummy_slug = '12345678-1234-5678-9012-123456789012'
+        response = self.client.get(reverse('room_create', args=[dummy_slug]))
+        self.assertEqual(response.status_code, 302)
+
+    def test_room_leave_requires_login(self):
+        """Room leave requires login."""
+        dummy_slug = '12345678-1234-5678-9012-123456789012'
+        response = self.client.post(reverse('room_leave', args=[dummy_slug, dummy_slug]))
+        self.assertEqual(response.status_code, 302)
+
     # Add more tests for other views that require auth
