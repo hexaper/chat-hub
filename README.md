@@ -118,6 +118,7 @@ The `deploy.sh` script automates the entire local setup: creates a virtual envir
 ```bash
 git clone https://github.com/hexaper/chat-hub.git
 cd chat-hub
+sudo apt install python3 python3-venv
 chmod +x deploy.sh
 ./deploy.sh
 ```
