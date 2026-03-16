@@ -1,10 +1,13 @@
 from functools import wraps
 
+from django.contrib import messages
 from django.core.cache import cache
-from django.http import HttpResponse
+from django.http import HttpResponse, JsonResponse
 
 
 _WINDOWS = {'m': 60, 'h': 3600, 'd': 86400}
+
+_RATE_LIMIT_MSG = 'Too many requests — please wait a moment before trying again.'
 
 
 def _parse_rate(rate):
@@ -35,7 +38,8 @@ def ratelimit(key, rate):
           'user' — limit per authenticated user (falls back to IP if anonymous)
     rate: '<count>/<period>'  e.g. '5/m', '10/m', '30/m'
 
-    Returns HTTP 429 when the limit is exceeded.
+    HTML views: adds a Django message and redirects back (popup via messages framework).
+    JSON/AJAX views: returns JSON {'error': 'rate_limited'} with status 429.
     """
     limit, window = _parse_rate(rate)
 
@@ -52,7 +56,18 @@ def ratelimit(key, rate):
                 )
             cache_key = f'rl:{view_func.__name__}:{identifier}'
             if _check(cache_key, limit, window):
-                return HttpResponse('Rate limit exceeded. Please try again later.', status=429)
+                # Detect JSON/AJAX requests by Accept header or X-Requested-With
+                is_ajax = (
+                    request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+                    or 'application/json' in request.headers.get('Accept', '')
+                )
+                # Use messages + redirect for HTML views only when the messages
+                # middleware is active (real requests). RequestFactory-based tests
+                # don't have the middleware, so fall back to JSON 429 there.
+                if not is_ajax and hasattr(request, '_messages'):
+                    messages.warning(request, _RATE_LIMIT_MSG)
+                    return HttpResponse(status=302, headers={'Location': request.path})
+                return JsonResponse({'error': 'rate_limited'}, status=429)
             return view_func(request, *args, **kwargs)
         return wrapper
     return decorator

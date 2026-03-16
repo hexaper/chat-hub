@@ -211,7 +211,7 @@
             || document.cookie.split('; ').find(c => c.startsWith('csrftoken='))?.split('=')[1] || '';
         const resp = await fetch(`/servers/${SERVER_SLUG}/chat/upload/`, {
             method: 'POST',
-            headers: { 'X-CSRFToken': csrfToken },
+            headers: { 'X-CSRFToken': csrfToken, 'Accept': 'application/json' },
             body: formData,
         });
         if (!resp.ok) {
@@ -238,7 +238,11 @@
                     message_id: result.message_id,
                 }));
             } catch (err) {
-                alert('Failed to upload image: ' + err.message);
+                if (err.message === 'rate_limited') {
+                    showToast('Too many requests \u2014 please wait a moment before trying again.', 'warning');
+                } else {
+                    showToast('Failed to upload image: ' + err.message, 'danger');
+                }
             }
         }
 

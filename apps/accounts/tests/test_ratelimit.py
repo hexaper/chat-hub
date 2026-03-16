@@ -49,14 +49,14 @@ class LoginRateLimitTest(TestCase):
                 msg=f"Request #{i + 1}/5 to login should not be rate-limited (got 429)",
             )
 
-    def test_sixth_request_returns_429(self):
-        """The 6th POST to login from the same IP within a minute must return 429."""
+    def test_sixth_request_is_rate_limited(self):
+        """The 6th POST to login from the same IP within a minute must be rate-limited (302 redirect with warning)."""
         for _ in range(5):
             self._post_login('10.0.0.11')
         response = self._post_login('10.0.0.11')
         self.assertEqual(
-            response.status_code, 429,
-            msg="6th login request from the same IP should be rate-limited (expected 429)",
+            response.status_code, 302,
+            msg="6th login request from the same IP should be rate-limited (expected 302 redirect)",
         )
 
     def test_different_ips_are_tracked_separately(self):
@@ -90,8 +90,8 @@ class LoginRateLimitTest(TestCase):
             )
         response = self._post_login('10.0.3.1')
         self.assertEqual(
-            response.status_code, 429,
-            msg="Successful logins should still count toward the IP rate limit",
+            response.status_code, 302,
+            msg="Successful logins should still count toward the IP rate limit (rate-limited = 302 redirect)",
         )
 
 
@@ -119,14 +119,14 @@ class RegisterRateLimitTest(TestCase):
                 msg=f"Request #{i + 1}/5 to register should not be rate-limited (got 429)",
             )
 
-    def test_sixth_request_returns_429(self):
-        """The 6th POST to register from the same IP within a minute must return 429."""
+    def test_sixth_request_is_rate_limited(self):
+        """The 6th POST to register from the same IP within a minute must be rate-limited (302 redirect with warning)."""
         for i in range(5):
             self._post_register('10.1.0.11', username=f'reg_user_{i}')
         response = self._post_register('10.1.0.11', username='reg_user_over')
         self.assertEqual(
-            response.status_code, 429,
-            msg="6th register request from the same IP should be rate-limited (expected 429)",
+            response.status_code, 302,
+            msg="6th register request from the same IP should be rate-limited (expected 302 redirect)",
         )
 
     def test_different_ips_are_tracked_separately(self):

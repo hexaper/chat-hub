@@ -67,11 +67,12 @@ class ChatImageUploadRateLimitTest(TestCase):
         self._url = f'/servers/{self.server.slug}/chat/upload/'
 
     def _post_image(self):
-        """POST a valid image to the upload endpoint."""
+        """POST a valid image to the upload endpoint (AJAX-style, expects JSON)."""
         return self.client.post(
             self._url,
             data={'image': _make_valid_image()},
             format='multipart',
+            HTTP_ACCEPT='application/json',
         )
 
     def test_ten_uploads_within_limit_are_not_rejected(self):
