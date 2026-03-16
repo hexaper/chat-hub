@@ -8,8 +8,9 @@ User = get_user_model()
 class ModelLogicTests(TestCase):
     """Test model logic: invite codes, passwords, cleanup, etc."""
 
-    def setUp(self):
-        self.user = User.objects.create_user(username='testuser', password='Tester123.')
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(username='testuser', password='Tester123.')
 
     def test_generate_invite_code_unique(self):
         """Invite codes are unique and 8 characters."""

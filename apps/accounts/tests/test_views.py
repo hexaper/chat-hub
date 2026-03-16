@@ -8,9 +8,10 @@ User = get_user_model()
 class AuthBoundaryTests(TestCase):
     """Test auth boundaries: views require login, non-members get 403, etc."""
 
-    def setUp(self):
-        self.user = User.objects.create_user(username='testuser', password='Tester123.')
-        self.other_user = User.objects.create_user(username='other', password='Tester123.')
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(username='testuser', password='Tester123.')
+        cls.other_user = User.objects.create_user(username='other', password='Tester123.')
 
     def test_login_required_for_profile(self):
         """Profile view requires login."""

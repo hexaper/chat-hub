@@ -8,8 +8,9 @@ User = get_user_model()
 class RoomFormValidationTests(TestCase):
     """Test form validation for rooms."""
 
-    def setUp(self):
-        self.user = User.objects.create_user(username='testuser', password='Tester123.')
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(username='testuser', password='Tester123.')
 
     def test_server_form_valid(self):
         """Server form accepts valid data."""

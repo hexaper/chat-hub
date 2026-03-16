@@ -8,8 +8,9 @@ User = get_user_model()
 class FormValidationTests(TestCase):
     """Test form validation: invalid inputs, duplicates, etc."""
 
-    def setUp(self):
-        self.user = User.objects.create_user(username='testuser', password='Tester123.')
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(username='testuser', password='Tester123.')
 
     def test_register_form_duplicate_username(self):
         """Register form rejects duplicate username."""
