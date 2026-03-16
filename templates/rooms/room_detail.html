@@ -1,6 +1,14 @@
 {% extends 'base.html' %}
 {% block title %}{{ room.name }}{% endblock %}
 {% block content %}
+<div id="roomLoader">
+    <div class="room-loader-inner">
+        <div class="room-loader-spinner"></div>
+        <p class="room-loader-text">Joining <strong>{{ room.name }}</strong>…</p>
+        <p class="room-loader-sub">Setting up camera &amp; connecting</p>
+    </div>
+</div>
+
 <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3">
     <div>
         <h2 class="mb-0">{{ room.name }}</h2>
@@ -37,14 +45,24 @@
         <div class="video-wrapper">
             <video id="localVideo" autoplay muted playsinline class="w-100 rounded bg-dark"></video>
             <div class="cam-placeholder" id="cam-placeholder-local">
-                <i class="bi bi-camera-video-off"></i>
+                {% if request.user.avatar %}
+                <img src="{{ request.user.avatar.url }}" alt="" style="width:80px;height:80px;border-radius:50%;object-fit:cover;opacity:0.7">
+                {% else %}
+                <div class="cam-placeholder-initial">{{ request.user.username|slice:":1"|upper }}</div>
+                {% endif %}
             </div>
+            <button class="fullscreen-btn" onclick="event.stopPropagation(); enterFullscreen(this.closest('.video-wrapper'))" title="Fullscreen">
+                <i class="bi bi-fullscreen"></i>
+            </button>
             <div class="media-icons local-controls" id="media-icons-local">
                 <span class="media-icon mic-icon" onclick="event.stopPropagation(); toggleMic()" title="Toggle microphone">
                     <i class="bi bi-mic-mute-fill text-danger"></i>
                 </span>
                 <span class="media-icon cam-icon" onclick="event.stopPropagation(); toggleCam()" title="Toggle camera">
                     <i class="bi bi-camera-video-off-fill text-danger"></i>
+                </span>
+                <span class="media-icon screen-icon" onclick="event.stopPropagation(); toggleScreen()" title="Share screen">
+                    <i class="bi bi-display"></i>
                 </span>
             </div>
         </div>
@@ -107,6 +125,7 @@
 <script>
     const ROOM_SLUG = "{{ room.slug|escapejs }}";
     const USERNAME = "{{ request.user.username|escapejs }}";
+    const AVATAR_URL = "{% if request.user.avatar %}{{ request.user.avatar.url|escapejs }}{% endif %}";
     const IS_HOST = {{ is_host|yesno:"true,false" }};
     const WS_URL = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/ws/rooms/${ROOM_SLUG}/`;
 </script>

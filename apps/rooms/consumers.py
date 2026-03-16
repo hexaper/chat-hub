@@ -176,11 +176,13 @@ class RoomConsumer(AsyncWebsocketConsumer):
             'channel': self.channel_name,
         }))
 
+        avatar_url = self.user.avatar.url if self.user.avatar else None
         await self.channel_layer.group_send(self.room_group, {
             'type': 'user_joined',
             'username': self.user.username,
             'channel': self.channel_name,
             'seq': self.join_seq,
+            'avatar_url': avatar_url,
         })
 
     async def disconnect(self, code):
@@ -209,12 +211,15 @@ class RoomConsumer(AsyncWebsocketConsumer):
             target = data.get('target')
             if not target:
                 return
+            avatar_url = self.user.avatar.url if self.user.avatar else None
             await self.channel_layer.send(target, {
                 'type': 'signal',
                 'signal_type': msg_type,
                 'payload': data.get('payload'),
                 'sender': self.channel_name,
                 'username': self.user.username,
+                'avatar_url': avatar_url,
+                'seq': self.join_seq,
             })
 
         elif msg_type == 'device_update':
@@ -254,6 +259,7 @@ class RoomConsumer(AsyncWebsocketConsumer):
             'username': event['username'],
             'channel': event['channel'],
             'seq': event['seq'],
+            'avatar_url': event.get('avatar_url'),
         }))
 
     async def user_left(self, event):
@@ -270,6 +276,8 @@ class RoomConsumer(AsyncWebsocketConsumer):
             'payload': event['payload'],
             'sender': event['sender'],
             'username': event['username'],
+            'avatar_url': event.get('avatar_url'),
+            'seq': event.get('seq'),
         }))
 
     async def kicked(self, event):

@@ -402,6 +402,57 @@ code {
     box-shadow: var(--shadow-md);
 }
 
+/* ── Room loading overlay ─────────────────────────────────── */
+
+#roomLoader {
+    position: fixed;
+    inset: 0;
+    background: var(--bg-primary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9999;
+    opacity: 1;
+    transition: opacity 0.4s ease;
+}
+
+#roomLoader.fade-out {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.room-loader-inner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.room-loader-spinner {
+    width: 52px;
+    height: 52px;
+    border: 3px solid var(--border-color);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: loaderSpin 0.8s linear infinite;
+}
+
+@keyframes loaderSpin {
+    to { transform: rotate(360deg); }
+}
+
+.room-loader-text {
+    margin: 0;
+    font-size: 1.1rem;
+    color: var(--text-primary);
+}
+
+.room-loader-sub {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--text-muted);
+}
+
 /* ── Video grid ───────────────────────────────────────────── */
 
 video {
@@ -479,6 +530,20 @@ video.speaking {
     color: var(--text-muted);
 }
 
+.cam-placeholder-initial {
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 2rem;
+    font-weight: 700;
+    opacity: 0.7;
+}
+
 #videoGrid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -502,6 +567,35 @@ video.speaking {
 
 .video-tile:hover .video-wrapper::after {
     background: rgba(255, 255, 255, 0.06);
+}
+
+.fullscreen-btn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 30px;
+    height: 30px;
+    background: rgba(0, 0, 0, 0.6);
+    backdrop-filter: blur(4px);
+    border: none;
+    border-radius: var(--radius-sm);
+    color: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    opacity: 0;
+    transition: opacity 0.15s, background 0.15s;
+    z-index: 2;
+}
+
+.video-tile:hover .fullscreen-btn {
+    opacity: 1;
+}
+
+.fullscreen-btn:hover {
+    background: rgba(0, 0, 0, 0.85);
 }
 
 /* Spotlight area — centered above the grid */

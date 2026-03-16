@@ -7,6 +7,8 @@ let localStream = null;
 let socket = null;
 let myChannel = null;
 let cameraEnabled = false;  // camera starts off for remote peers
+let screenSharing = false;
+let screenStream = null;
 let blackVideoTrack = null;
 let blackCanvas = null;     // held to prevent GC killing the canvas stream
 const remoteStreams = {};   // channel -> MediaStream we build ourselves
@@ -102,16 +104,104 @@ function toggleMic() {
 async function toggleCam() {
     if (!localStream) return;
     cameraEnabled = !cameraEnabled;
-    const videoTrack = localStream.getVideoTracks()[0];
-    const trackToSend = cameraEnabled ? videoTrack : getBlackVideoTrack();
 
-    for (const pc of Object.values(peers)) {
-        const sender = pc.getSenders().find(s => s.track?.kind === 'video');
-        if (sender) await sender.replaceTrack(trackToSend);
+    // Don't replace the track while screen sharing — camera state takes effect when share stops
+    if (!screenSharing) {
+        const trackToSend = cameraEnabled ? localStream.getVideoTracks()[0] : getBlackVideoTrack();
+        for (const pc of Object.values(peers)) {
+            const sender = pc.getSenders().find(s => s.track?.kind === 'video');
+            if (sender) await sender.replaceTrack(trackToSend);
+        }
     }
 
     updateMediaIcons('local', localStream.getAudioTracks()[0]?.enabled ?? false, cameraEnabled);
     broadcastMediaState();
+}
+
+// ── Screen share ──────────────────────────────────────────────────────────────
+async function toggleScreen() {
+    if (screenSharing) {
+        stopScreenShare();
+    } else {
+        await startScreenShare();
+    }
+}
+
+async function startScreenShare() {
+    let stream;
+    try {
+        stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+    } catch (e) {
+        console.warn('[Screen] Could not start screen share:', e);
+        return;
+    }
+
+    screenStream = stream;
+    screenSharing = true;
+    const screenTrack = screenStream.getVideoTracks()[0];
+
+    // Browser's built-in "Stop sharing" button
+    screenTrack.onended = () => stopScreenShare();
+
+    // Replace video track for all current peers
+    for (const pc of Object.values(peers)) {
+        const sender = pc.getSenders().find(s => s.track?.kind === 'video');
+        if (sender) await sender.replaceTrack(screenTrack);
+    }
+
+    // Show screen in local preview
+    const localVideo = document.getElementById('localVideo');
+    localVideo.srcObject = new MediaStream([screenTrack]);
+    localVideo.play().catch(() => {});
+    updateCamPlaceholder('local', true);   // hide the "no camera" overlay
+    updateScreenIcon(true);
+    broadcastMediaState();
+
+    // Auto-spotlight local tile so the shared screen is prominent
+    const localTile = document.getElementById('localVideo').closest('.video-tile');
+    if (localTile && !localTile.classList.contains('spotlighted')) {
+        toggleSpotlight(localTile);
+    }
+}
+
+function stopScreenShare() {
+    if (screenStream) {
+        screenStream.getTracks().forEach(t => t.stop());
+        screenStream = null;
+    }
+    screenSharing = false;
+
+    // Revert local preview to camera stream
+    document.getElementById('localVideo').srcObject = localStream;
+    updateCamPlaceholder('local', cameraEnabled);  // restore correct overlay state
+
+    // Revert track sent to peers
+    const trackToSend = cameraEnabled ? localStream?.getVideoTracks()[0] : getBlackVideoTrack();
+    for (const pc of Object.values(peers)) {
+        const sender = pc.getSenders().find(s => s.track?.kind === 'video');
+        if (sender && trackToSend) sender.replaceTrack(trackToSend);
+    }
+
+    updateScreenIcon(false);
+    broadcastMediaState();
+
+    // Remove spotlight if the local tile was auto-spotlighted
+    const localTile = document.getElementById('localVideo').closest('.video-tile');
+    if (localTile && localTile.classList.contains('spotlighted')) {
+        toggleSpotlight(localTile);
+    }
+}
+
+function updateScreenIcon(active) {
+    const icon = document.querySelector('#media-icons-local .screen-icon i');
+    if (!icon) return;
+    icon.className = active ? 'bi bi-display-fill text-success' : 'bi bi-display';
+}
+
+// ── Fullscreen ────────────────────────────────────────────────────────────────
+function enterFullscreen(wrapper) {
+    const el = wrapper.querySelector('video') ?? wrapper;
+    (el.requestFullscreen ?? el.webkitRequestFullscreen ?? el.mozRequestFullScreen)?.call(el);
 }
 
 // ── Media state icons ────────────────────────────────────────────────────────
@@ -127,13 +217,21 @@ function updateMediaIcons(id, micOn, camOn) {
 
 function updateCamPlaceholder(id, camOn) {
     const el = document.getElementById(`cam-placeholder-${id}`);
-    if (el) el.style.display = camOn ? 'none' : 'flex';
+    if (!el) return;
+    el.style.display = camOn ? 'none' : 'flex';
+}
+
+
+function escapeHtml(text) {
+    const d = document.createElement('div');
+    d.textContent = text;
+    return d.innerHTML;
 }
 
 function broadcastMediaState() {
     if (!socket || socket.readyState !== WebSocket.OPEN) return;
     const micOn = localStream?.getAudioTracks()[0]?.enabled ?? false;
-    socket.send(JSON.stringify({ type: 'media_state', mic: micOn, cam: cameraEnabled }));
+    socket.send(JSON.stringify({ type: 'media_state', mic: micOn, cam: cameraEnabled || screenSharing }));
 }
 
 // ── Host controls ────────────────────────────────────────────────────────────
@@ -220,6 +318,10 @@ function stopVadLoop() {
 
 // ── Cleanup on page unload ──────────────────────────────────────────────────
 function cleanupLocalResources() {
+    if (screenStream) {
+        screenStream.getTracks().forEach(t => t.stop());
+        screenStream = null;
+    }
     if (localStream) {
         localStream.getTracks().forEach(t => t.stop());
         localStream = null;
@@ -271,6 +373,11 @@ function connectWebSocket(cameraId, micId) {
 
         if (msg.type === 'my_channel') {
             myChannel = msg.channel;
+            const loader = document.getElementById('roomLoader');
+            if (loader) {
+                loader.classList.add('fade-out');
+                setTimeout(() => loader.remove(), 400);
+            }
 
         } else if (msg.type === 'user_joined') {
             // If this user was previously connected with a different channel, clean up the old peer
@@ -284,7 +391,7 @@ function connectWebSocket(cameraId, micId) {
             addParticipantToList(msg.username);
             if (msg.channel !== myChannel) {
                 try {
-                    await createOffer(msg.channel, msg.username);
+                    await createOffer(msg.channel, msg.username, msg.avatar_url ?? null);
                 } catch (e) {
                     console.error('[WebRTC] createOffer failed:', e);
                 }
@@ -306,7 +413,7 @@ function connectWebSocket(cameraId, micId) {
 
         } else if (msg.type === 'offer') {
             try {
-                await handleOffer(msg.payload, msg.sender, msg.username);
+                await handleOffer(msg.payload, msg.sender, msg.username, msg.avatar_url ?? null, msg.seq ?? null);
             } catch (e) {
                 console.error('[WebRTC] handleOffer failed:', e);
             }
@@ -372,7 +479,7 @@ async function drainCandidates(channel) {
 }
 
 // ── WebRTC helpers ──────────────────────────────────────────────────────────
-function setupPeerConnection(targetChannel, username) {
+function setupPeerConnection(targetChannel, username, avatarUrl) {
     // Close any existing connection for this channel before creating a new one
     if (peers[targetChannel]) {
         console.warn(`[WebRTC] Replacing existing peer for channel ${targetChannel}`);
@@ -405,10 +512,13 @@ function setupPeerConnection(targetChannel, username) {
 
     remoteStreams[targetChannel] = new MediaStream();
     pc.ontrack = ({ track }) => {
+        // Drop stale events — the connection may have been superseded by a rejoin
+        if (peers[targetChannel] !== pc) return;
+
         console.log(`[WebRTC] ontrack: ${track.kind} from ${username} (${targetChannel})`);
         remoteStreams[targetChannel].addTrack(track);
         if (track.kind === 'video') {
-            addRemoteVideo(targetChannel, username, remoteStreams[targetChannel]);
+            addRemoteVideo(targetChannel, username, avatarUrl, remoteStreams[targetChannel]);
         } else if (track.kind === 'audio') {
             const audioStream = new MediaStream([track]);
             const audioEl = document.createElement('audio');
@@ -425,17 +535,22 @@ function setupPeerConnection(targetChannel, username) {
     return pc;
 }
 
+function getOutboundVideoTrack() {
+    if (screenSharing && screenStream) return screenStream.getVideoTracks()[0];
+    return cameraEnabled ? localStream.getVideoTracks()[0] : getBlackVideoTrack();
+}
+
 function addLocalTracks(pc) {
     const audioTrack = localStream.getAudioTracks()[0];
     if (audioTrack) pc.addTrack(audioTrack, localStream);
 
-    const videoTrack = cameraEnabled ? localStream.getVideoTracks()[0] : getBlackVideoTrack();
+    const videoTrack = getOutboundVideoTrack();
     if (videoTrack) pc.addTrack(videoTrack, localStream);
 }
 
-async function createOffer(targetChannel, username) {
+async function createOffer(targetChannel, username, avatarUrl) {
     console.log(`[WebRTC] Creating offer for ${username} (${targetChannel})`);
-    const pc = setupPeerConnection(targetChannel, username);
+    const pc = setupPeerConnection(targetChannel, username, avatarUrl);
     addLocalTracks(pc);
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
@@ -443,8 +558,13 @@ async function createOffer(targetChannel, username) {
     socket.send(JSON.stringify({ type: 'offer', target: targetChannel, payload: offer }));
 }
 
-async function handleOffer(offer, senderChannel, username) {
-    const pc = setupPeerConnection(senderChannel, username);
+async function handleOffer(offer, senderChannel, username, avatarUrl, seq) {
+    // Populate tracking maps so cleanup works when this user refreshes or leaves
+    // (they may never have sent user_joined to us if they were already in the room)
+    userChannels[username] = senderChannel;
+    if (seq != null) userSeqs[username] = seq;
+
+    const pc = setupPeerConnection(senderChannel, username, avatarUrl);
 
     // Set remote description FIRST — this creates transceivers from the offer
     await pc.setRemoteDescription(offer);
@@ -459,7 +579,7 @@ async function handleOffer(offer, senderChannel, username) {
                 transceiver.direction = 'sendrecv';
             }
         } else if (kind === 'video') {
-            const videoTrack = cameraEnabled ? localStream.getVideoTracks()[0] : getBlackVideoTrack();
+            const videoTrack = getOutboundVideoTrack();
             if (videoTrack) {
                 await transceiver.sender.replaceTrack(videoTrack);
                 transceiver.direction = 'sendrecv';
@@ -498,8 +618,17 @@ function toggleSpotlight(tile) {
     }
 }
 
-function addRemoteVideo(channel, username, stream) {
+function buildAvatarPlaceholder(username, avatarUrl) {
+    if (avatarUrl) {
+        return `<img src="${escapeHtml(avatarUrl)}" alt="" style="width:80px;height:80px;border-radius:50%;object-fit:cover;opacity:0.7">`;
+    }
+    return `<div class="cam-placeholder-initial">${escapeHtml(username.charAt(0).toUpperCase())}</div>`;
+}
+
+function addRemoteVideo(channel, username, avatarUrl, stream) {
     if (document.getElementById(`video-${channel}`)) return;
+    // If userChannels has moved on to a newer channel for this user, this call is stale
+    if (userChannels[username] !== channel) return;
 
     const col = document.createElement('div');
     col.id = `video-${channel}`;
@@ -521,7 +650,13 @@ function addRemoteVideo(channel, username, stream) {
     const placeholder = document.createElement('div');
     placeholder.className = 'cam-placeholder';
     placeholder.id = `cam-placeholder-${channel}`;
-    placeholder.innerHTML = '<i class="bi bi-camera-video-off"></i>';
+    placeholder.innerHTML = buildAvatarPlaceholder(username, avatarUrl);
+
+    const fsBtn = document.createElement('button');
+    fsBtn.className = 'fullscreen-btn';
+    fsBtn.title = 'Fullscreen';
+    fsBtn.innerHTML = '<i class="bi bi-fullscreen"></i>';
+    fsBtn.addEventListener('click', e => { e.stopPropagation(); enterFullscreen(wrapper); });
 
     const icons = document.createElement('div');
     icons.className = 'media-icons';
@@ -530,7 +665,7 @@ function addRemoteVideo(channel, username, stream) {
         <span class="media-icon mic-icon"><i class="bi bi-mic-mute-fill text-danger"></i></span>
         <span class="media-icon cam-icon"><i class="bi bi-camera-video-off-fill text-danger"></i></span>`;
 
-    wrapper.append(video, placeholder, icons);
+    wrapper.append(video, placeholder, fsBtn, icons);
 
     // Apply any media state that arrived before this element existed
     if (pendingMediaStates[channel]) {
