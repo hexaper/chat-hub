@@ -24,3 +24,4 @@ staticfiles
 mediafiles
 .env
 dump.rdb
+.secret_key

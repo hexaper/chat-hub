@@ -16,24 +16,40 @@ Before any feature work, the ground rules:
 
 ---
 
+## Current Status
+
+As of the latest commit, Chat Hub is a functional MVP with core video chat, text chat, and user management features. Key implemented components:
+- P2P WebRTC video/audio calls with STUN (no TURN yet)
+- Real-time text chat with image uploads via WebSockets
+- Server/room hierarchy with invite codes and basic permissions
+- User authentication, profiles, and device management
+- Docker deployment (all-in-one and production modes)
+- SQLite/PostgreSQL support with Redis for channels
+
+Not yet implemented: test suite, rate limiting, TURN server, screen sharing, chat editing/deletion, CI/CD, performance optimizations, or advanced features like SFU or mobile support.
+
+The roadmap below outlines the prioritized path to production-grade stability and feature completeness.
+
+---
+
 ## Current Stack Inventory
 
 | Layer | Technology | Role | Verdict |
 |-------|-----------|------|---------|
-| Web framework | Django 5.2 | Views, ORM, auth, forms, templates | Keep — mature, batteries-included |
-| ASGI server | Daphne 4.2 | HTTP + WebSocket serving | Keep — native Channels integration, no nginx needed for dev |
-| WebSocket | Django Channels 4.3 | Real-time signaling + chat | Keep — tight Django integration, shares auth/session |
-| Channel backend | channels-redis 4.3 + Redis | Pub/sub between consumer instances | Keep — only viable production backend for Channels |
+| Web framework | Django 5.2.12 | Views, ORM, auth, forms, templates | Keep — mature, batteries-included |
+| ASGI server | Daphne 4.2.1 | HTTP + WebSocket serving | Keep — native Channels integration, no nginx needed for dev |
+| WebSocket | Django Channels 4.3.2 | Real-time signaling + chat | Keep — tight Django integration, shares auth/session |
+| Channel backend | channels-redis 4.3.0 + Redis 7.3.0 | Pub/sub between consumer instances | Keep — only viable production backend for Channels |
 | Database | PostgreSQL (prod) / SQLite (dev) | All persistent data | Keep — PostgreSQL is the right default for Django |
-| Media storage | django-storages + S3 (prod) / filesystem (dev/allinone) | User uploads (avatars, chat images) | Keep — proven pattern, swap-friendly via STORAGES setting |
-| Static files | WhiteNoise 6.12 | Serve collected static from the app process | Keep — eliminates need for nginx/CDN in simple deploys |
-| Image processing | Pillow 12 | Upload validation (magic byte check), avatar handling | Keep — already a Django dependency for ImageField |
-| Forms | django-crispy-forms + crispy-bootstrap5 | Form rendering with Bootstrap 5 markup | Keep — small footprint, big DX improvement |
+| Media storage | django-storages[s3] 1.14.4 + boto3 1.38.34 (prod) / filesystem (dev/allinone) | User uploads (avatars, chat images) | Keep — proven pattern, swap-friendly via STORAGES setting |
+| Static files | WhiteNoise 6.12.0 | Serve collected static from the app process | Keep — eliminates need for nginx/CDN in simple deploys |
+| Image processing | Pillow 12.1.1 | Upload validation (magic byte check), avatar handling | Keep — already a Django dependency for ImageField |
+| Forms | django-crispy-forms 2.6 + crispy-bootstrap5 2026.3 | Form rendering with Bootstrap 5 markup | Keep — small footprint, big DX improvement |
 | Frontend | Bootstrap 5 (CDN) + vanilla JS | UI + WebRTC logic | Keep — no build step, fast page loads |
-| Containerisation | Docker + docker-compose | Deployment packaging | Keep — standard, well-understood |
+| Containerisation | Docker + docker-compose | Deployment packaging | Keep — standard, well-understood; production files organized in `production/` directory for clean separation |
 | CI/CD | GitHub Actions (CodeQL only) | Security scanning | Expand — needs test + deploy workflows |
 
-**Total Python dependencies: 12.** Goal: stay under 20 through Phase 4.
+**Total Python dependencies: 12.** Goal: stay under 20 through Phase 6.
 
 ---
 
@@ -106,6 +122,8 @@ CACHES = {
 A `@ratelimit(key='ip', rate='5/m')` decorator on `login_view`, `register_view`. A `@ratelimit(key='user', rate='30/m')` on chat message send. A `@ratelimit(key='user', rate='10/m')` on image upload.
 
 For WebSocket consumers: check rate in `receive()` using the same cache, drop messages silently if exceeded.
+
+Implement the `@ratelimit` decorator in a new `utils/ratelimit.py` file. Apply to views in `apps/accounts/views.py` (login/register) and `apps/rooms/consumers.py` (chat send). Update `config/settings/base.py` to add the Redis cache config.
 
 **New dependencies: 0.** Django 4.0+ has a built-in Redis cache backend.
 
@@ -438,7 +456,32 @@ USER appuser
 
 ---
 
-## Phase 4 — Rich Features (Weeks 17-24)
+## Phase 4 — Scalability and Ecosystem (Weeks 17-24)
+
+The goal: support larger deployments and expand beyond the browser.
+
+### 4.1 SFU Architecture for Large Rooms
+**When:** When rooms regularly exceed 6 participants and P2P mesh becomes unreliable.
+**Technology choice:** mediasoup or LiveKit (self-hosted or managed).
+**Implementation:** Add SFU signaling alongside P2P, with automatic fallback. New dependency: ~2-3 packages for signaling.
+
+### 4.2 Progressive Web App (PWA)
+**Why:** Enable installable app experience on mobile/desktop.
+**Implementation:** Add service worker, web app manifest, and offline chat caching. No new backend changes.
+
+### 4.3 REST API for Third-Party Integrations
+**Why:** Allow bots, mobile apps, or external tools to interact with servers/rooms.
+**Implementation:** Django REST Framework for endpoints like `/api/servers/`, `/api/messages/`. New dependency: DRF (~5 packages).
+
+### 4.4 Mobile App (Optional)
+**Technology choice:** React Native or Flutter for cross-platform.
+**Why optional:** Increases scope significantly; start with PWA first.
+
+**New dependencies: Variable (0-10 depending on choices).**
+
+---
+
+## Phase 5 — Rich Features (Weeks 25-32)
 
 The goal: features that differentiate Chat Hub from a toy project.
 
@@ -653,8 +696,19 @@ C-based, harder to deploy and configure, the API is more complex, and the commun
 | 1 | 0 | 0 |
 | 2 | 0 (coturn is infrastructure, not a pip package) | 0 |
 | 3 | 0 | 1 (ruff, dev only) |
-| 4 | 0-1 (DRF, only if API is needed) | 0-1 (drf-spectacular) |
-| 5 | 0-1 (livekit-api, only if SFU is needed) | 0 |
+| 4 | Variable (0-10 depending on choices) | 0 |
+| 5 | 0-1 (DRF, only if API is needed) | 0-1 (drf-spectacular) |
+| 6 | 0-1 (livekit-api, only if SFU is needed) | 0 |
+
+---
+
+## Risks and Contingencies
+
+- **P2P Limitations:** If TURN/STUN proves insufficient for target users, prioritize Phase 2.1 early.
+- **Dependency Creep:** Re-evaluate philosophy if new features require >5 new packages; consider alternatives.
+- **Scalability Bottlenecks:** Monitor Redis/PostgreSQL performance in Phase 3; if issues arise, add read replicas or sharding.
+- **Security:** Conduct a third-party audit before public launch; use tools like Bandit for static analysis.
+- **Maintenance:** Set up automated dependency updates (Dependabot) to avoid version drift.
 
 **Worst case through Phase 4: 13-14 runtime dependencies.** Still lean.
 
