@@ -25,8 +25,9 @@ As of the latest commit, Chat Hub is a functional MVP with core video chat, text
 - User authentication, profiles, and device management
 - Docker deployment (all-in-one and production modes)
 - SQLite/PostgreSQL support with Redis for channels
+- **82-test suite** covering models, views, forms, permissions, WebSocket consumers (both `RoomConsumer` and `ServerChatConsumer`), and integration flows — runs in ~35s with `--parallel`
 
-Not yet implemented: test suite, rate limiting, TURN server, screen sharing, chat editing/deletion, CI/CD, performance optimizations, or advanced features like SFU or mobile support.
+Not yet implemented: rate limiting, TURN server, screen sharing, chat editing/deletion, CI/CD, performance optimizations, or advanced features like SFU or mobile support.
 
 The roadmap below outlines the prioritized path to production-grade stability and feature completeness.
 
@@ -73,31 +74,28 @@ The roadmap below outlines the prioritized path to production-grade stability an
 
 The goal: make the existing codebase safe to change with confidence.
 
-### 1.1 Test Suite
+### 1.1 Test Suite ✅ Done
 
-**Why this is first:** Every subsequent phase changes code. Without tests, every change is a gamble. The project currently has zero test files.
+**82 tests, all passing.** Runs in ~35s with `--parallel`, ~68s sequentially. Zero new dependencies.
+
+```bash
+python manage.py test --settings=config.settings.development --parallel --keepdb
+```
+
+**Coverage:**
+- `apps/accounts/tests/` — auth boundaries (login required, staff required), form validation (duplicate username, password mismatch, profile form)
+- `apps/rooms/tests/` — model logic (invite codes, password hashing, `last_empty_at`), form validation, view permissions (non-member/non-owner/non-host blocks), `ServerChatConsumer` (unauthenticated + non-member rejection, history on connect, broadcast, image ownership, empty/long message handling, disconnect), `RoomConsumer` (unauthenticated rejection, `my_channel` on connect, `user_joined` broadcast, `offer`/`answer`/`ice-candidate` relay, `media_state` broadcast, host kick/mute, non-host kick/mute ignored, `user_left` on disconnect, `last_empty_at` set when room empties), integration flows (full server→room flow, invite code join, password-protected room entry)
+- `apps/devices/tests/` — auth boundaries, device registration (valid payload, missing fields, invalid type, invalid JSON)
 
 **Technology choice: Django's built-in test framework (`django.test`)**
 
-*Why not pytest?* Django's `TestCase`, `TransactionTestCase`, and `channels.testing.WebsocketCommunicator` work out of the box with `manage.py test`. Zero config, zero new dependencies. pytest-django is nice but adds a dependency, a `conftest.py` convention, and fixture syntax that diverges from Django docs. The stdlib `unittest` patterns are fine for this project's scale.
+*Why not pytest?* Django's `TestCase`, `TransactionTestCase`, and `channels.testing.WebsocketCommunicator` work out of the box with `manage.py test`. Zero config, zero new dependencies.
 
-*Why not factory-boy?* Model creation helpers can be plain functions in a `tests/helpers.py` file. `Server.objects.create(name='Test', owner=user)` is already readable. A factory library adds indirection for no meaningful gain at this scale.
+*Why not factory-boy?* `Server.objects.create(name='Test', owner=user)` is already readable. A factory library adds indirection for no meaningful gain at this scale.
 
-**What to test (priority order):**
+*Why `TransactionTestCase` for consumer tests?* Django Channels consumer code runs in a separate thread/coroutine context. `TestCase` wraps everything in one transaction that the consumer thread can't see. `TransactionTestCase` commits each operation so the consumer thread sees the data, at the cost of slower table truncation between tests.
 
-1. **Auth boundaries (~30 tests)** — the highest-value tests. For every view: does it 401 without login? Does it 403 for non-members? Does a non-host get blocked from kick/mute? These are the tests that catch security regressions.
-
-2. **Model logic (~20 tests)** — invite code uniqueness, `Room.set_password` / `check_room_password` round-trip, `ChatMessage.image` validation flow, `generate_invite_code()` output format, `last_empty_at` lifecycle.
-
-3. **Consumer tests (~25 tests)** — use `channels.testing.WebsocketCommunicator`. Test: connect as non-authenticated user (should close), connect as non-member (should close), send `chat_message` → verify it persists and broadcasts, send `offer`/`answer`/`ice-candidate` → verify they relay to the correct channel, host sends `kick` → verify target receives `kicked`, non-host sends `kick` → verify it's ignored.
-
-4. **Form validation (~15 tests)** — `RegisterForm` with duplicate username, `RoomForm` with blank name, `RoomPasswordForm` empty submission, `ServerForm` with oversized avatar.
-
-5. **Integration flows (~10 tests)** — full room lifecycle (create server → join → create room → enter → leave → verify cleanup), chat image upload with valid/invalid files.
-
-**Target: ~100 tests, runnable in under 30 seconds on SQLite.**
-
-No new dependencies needed.
+*Why `setUpTestData` on non-consumer test classes?* Creates DB fixtures once per class (in a savepoint) rather than re-inserting before every test method. Safe for classes where test methods don't mutate the shared fixture objects.
 
 ### 1.2 Rate Limiting
 

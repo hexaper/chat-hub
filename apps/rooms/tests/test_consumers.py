@@ -184,7 +184,7 @@ class ConsumerTests(TransactionTestCase):
             await communicator.send_json_to({'type': 'chat_image', 'message_id': msg.id})
 
             with self.assertRaises(asyncio.TimeoutError):
-                await communicator.receive_from(timeout=1)
+                await communicator.receive_from(timeout=0.3)
 
             # Other user should not receive a message; disconnect gracefully.
             try:
@@ -233,7 +233,7 @@ class ConsumerTests(TransactionTestCase):
 
             # User2 should not receive the second message (timeout)
             with self.assertRaises(asyncio.TimeoutError):
-                await comm2.receive_from(timeout=1)
+                await comm2.receive_from(timeout=0.3)
 
             await comm1.disconnect()
 
@@ -271,7 +271,7 @@ class ConsumerTests(TransactionTestCase):
 
             # User2 should not receive any message (timeout)
             with self.assertRaises(asyncio.TimeoutError):
-                await comm2.receive_from(timeout=1)
+                await comm2.receive_from(timeout=0.3)
 
             await comm1.disconnect()
             try:
@@ -657,7 +657,7 @@ class RoomConsumerTests(TransactionTestCase):
             # host should receive nothing (timeout)
             received_something = False
             try:
-                await comm_host.receive_from(timeout=1)
+                await comm_host.receive_from(timeout=0.3)
                 received_something = True
             except asyncio.TimeoutError:
                 pass
@@ -676,6 +676,7 @@ class RoomConsumerTests(TransactionTestCase):
         asyncio.run(run())
 
     def test_room_host_can_mute_user(self):
+
         """Host sends mute_user → target receives force_mute."""
         transaction.commit()
 
@@ -738,7 +739,7 @@ class RoomConsumerTests(TransactionTestCase):
             # host should receive nothing (timeout)
             received_something = False
             try:
-                await comm_host.receive_from(timeout=1)
+                await comm_host.receive_from(timeout=0.3)
                 received_something = True
             except asyncio.TimeoutError:
                 pass
