@@ -137,5 +137,7 @@ fi
 
 echo "Starting Daphne (HTTPS) on 0.0.0.0:8000..."
 exec daphne \
-    -e "ssl:8000:privateKey=${SSL_KEY}:certKey=${SSL_CERT}" \
+    --ssl-certificate "$SSL_CERT" \
+    --ssl-key "$SSL_KEY" \
+    -b 0.0.0.0 -p 8000 \
     config.asgi:application
