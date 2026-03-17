@@ -109,6 +109,7 @@
         {% csrf_token %}
         <div class="card">
             <div id="roomChatMessages" class="card-body server-chat-messages"></div>
+            <div id="roomTypingIndicator" class="px-3 py-1" style="min-height:1.4rem;font-size:0.75rem;color:var(--text-muted);font-style:italic"></div>
             <div class="card-footer p-2">
                 <form id="roomChatForm" class="d-flex gap-2" autocomplete="off">
                     <input type="text" id="roomChatInput" class="form-control form-control-sm"
@@ -136,8 +137,10 @@
     const wsProto = window.location.protocol === 'https:' ? 'wss' : 'ws';
     const chatUrl = `${wsProto}://${window.location.host}/ws/room-chat/${ROOM_SLUG}/`;
     const USERNAME = "{{ request.user.username|escapejs }}";
+    const EDIT_WINDOW_MS = 15 * 60 * 1000;
 
     const messagesDiv = document.getElementById('roomChatMessages');
+    const typingIndicator = document.getElementById('roomTypingIndicator');
     const chatForm = document.getElementById('roomChatForm');
     const chatInput = document.getElementById('roomChatInput');
     let socket = null;
@@ -160,21 +163,174 @@
         return `<div class="chat-avatar chat-avatar-placeholder">${escapeHtml(msg.username.charAt(0).toUpperCase())}</div>`;
     }
 
+    // Typing indicator
+    const typingTimers = {};
+    function showTyping(username) {
+        clearTimeout(typingTimers[username]);
+        typingTimers[username] = setTimeout(() => {
+            delete typingTimers[username];
+            renderTyping();
+        }, 5000);
+        renderTyping();
+    }
+    function renderTyping() {
+        const names = Object.keys(typingTimers);
+        if (names.length === 0) {
+            typingIndicator.textContent = '';
+        } else if (names.length === 1) {
+            typingIndicator.textContent = `${names[0]} is typing…`;
+        } else if (names.length === 2) {
+            typingIndicator.textContent = `${names[0]} and ${names[1]} are typing…`;
+        } else {
+            typingIndicator.textContent = `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]} are typing…`;
+        }
+    }
+
+    let typingDebounce = null;
+    function sendTyping() {
+        if (typingDebounce) return;
+        if (socket && socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify({ type: 'typing' }));
+        }
+        typingDebounce = setTimeout(() => { typingDebounce = null; }, 3000);
+    }
+
+    function buildContentHtml(msg) {
+        if (msg.deleted_at) {
+            return `<div class="chat-msg-content fst-italic" style="color:var(--text-muted)">Message deleted</div>`;
+        }
+        return `<div class="chat-msg-content">${escapeHtml(msg.content)}${msg.updated_at ? ' <small style="color:var(--text-muted)">(edited)</small>' : ''}</div>`;
+    }
+
     function appendMessage(msg) {
         const isOwn = msg.username === USERNAME;
+        const isDeleted = !!msg.deleted_at;
         const el = document.createElement('div');
         el.className = 'chat-msg d-flex gap-2 mb-2';
+        el.dataset.msgId = msg.id;
+        el.dataset.content = msg.content || '';
+        el.dataset.createdAt = msg.created_at;
+
+        const createdMs = new Date(msg.created_at).getTime();
+        const canEdit = isOwn && !isDeleted && (Date.now() - createdMs) < EDIT_WINDOW_MS;
+
+        let actionsHtml = '';
+        if (isOwn && !isDeleted) {
+            actionsHtml =
+                `<div class="chat-msg-actions d-flex gap-1 ms-1">` +
+                (canEdit ? `<button class="btn btn-link btn-sm p-0 chat-edit-btn" title="Edit" style="color:var(--text-muted);font-size:0.7rem"><i class="bi bi-pencil"></i></button>` : '') +
+                `<button class="btn btn-link btn-sm p-0 chat-delete-btn" title="Delete" style="color:var(--text-muted);font-size:0.7rem"><i class="bi bi-trash"></i></button>` +
+                `</div>`;
+        }
+
         el.innerHTML =
             avatarHtml(msg) +
             `<div class="flex-grow-1 min-width-0">` +
-            `<div class="d-flex justify-content-between align-items-baseline">` +
+            `<div class="d-flex align-items-baseline gap-1">` +
             `<strong style="color:${isOwn ? 'var(--accent-hover)' : 'var(--text-primary)'}; font-size:0.85rem">${escapeHtml(msg.username)}</strong>` +
             `<small style="color:var(--text-muted); font-size:0.75rem">${formatTime(msg.created_at)}</small>` +
+            actionsHtml +
             `</div>` +
-            `<div class="chat-msg-content">${escapeHtml(msg.content)}</div>` +
+            buildContentHtml(msg) +
             `</div>`;
+
+        if (isOwn && !isDeleted) {
+            const editBtn = el.querySelector('.chat-edit-btn');
+            const deleteBtn = el.querySelector('.chat-delete-btn');
+
+            if (editBtn) {
+                const remaining = EDIT_WINDOW_MS - (Date.now() - createdMs);
+                setTimeout(() => editBtn.remove(), remaining);
+                editBtn.addEventListener('click', () => startEdit(el));
+            }
+
+            deleteBtn.addEventListener('click', () => {
+                if (confirm('Delete this message?')) {
+                    socket.send(JSON.stringify({ type: 'delete_message', message_id: parseInt(msg.id) }));
+                }
+            });
+        }
+
         messagesDiv.appendChild(el);
         messagesDiv.scrollTop = messagesDiv.scrollHeight;
+    }
+
+    function startEdit(el) {
+        const contentDiv = el.querySelector('.chat-msg-content');
+        if (!contentDiv || el.querySelector('textarea')) return;
+
+        const textarea = document.createElement('textarea');
+        textarea.className = 'form-control form-control-sm mt-1';
+        textarea.value = el.dataset.content;
+        textarea.maxLength = 2000;
+        textarea.rows = 2;
+        textarea.style.resize = 'none';
+
+        const btnRow = document.createElement('div');
+        btnRow.className = 'd-flex gap-1 mt-1';
+        btnRow.innerHTML =
+            `<button type="button" class="btn btn-primary btn-sm" style="font-size:0.75rem">Save</button>` +
+            `<button type="button" class="btn btn-outline-secondary btn-sm" style="font-size:0.75rem">Cancel</button>`;
+
+        contentDiv.replaceWith(textarea);
+        textarea.after(btnRow);
+        textarea.focus();
+        textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+
+        function restoreContent() {
+            const restored = document.createElement('div');
+            restored.className = 'chat-msg-content';
+            restored.innerHTML = escapeHtml(el.dataset.content) +
+                (el.dataset.updatedAt ? ' <small style="color:var(--text-muted)">(edited)</small>' : '');
+            textarea.replaceWith(restored);
+            btnRow.remove();
+        }
+
+        btnRow.querySelector('.btn-primary').addEventListener('click', () => {
+            const newContent = textarea.value.trim();
+            if (!newContent) return;
+            socket.send(JSON.stringify({ type: 'edit_message', message_id: parseInt(el.dataset.msgId), content: newContent }));
+            restoreContent();
+        });
+
+        btnRow.querySelector('.btn-outline-secondary').addEventListener('click', restoreContent);
+
+        textarea.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                btnRow.querySelector('.btn-primary').click();
+            } else if (e.key === 'Escape') {
+                restoreContent();
+            }
+        });
+    }
+
+    function handleMessageEdited(data) {
+        const el = messagesDiv.querySelector(`[data-msg-id="${data.id}"]`);
+        if (!el) return;
+        el.dataset.content = data.content;
+        el.dataset.updatedAt = data.updated_at;
+        const contentDiv = el.querySelector('.chat-msg-content');
+        if (contentDiv) {
+            contentDiv.innerHTML = escapeHtml(data.content) + ' <small style="color:var(--text-muted)">(edited)</small>';
+        }
+    }
+
+    function handleMessageDeleted(data) {
+        const el = messagesDiv.querySelector(`[data-msg-id="${data.id}"]`);
+        if (!el) return;
+        const actions = el.querySelector('.chat-msg-actions');
+        if (actions) actions.remove();
+        const innerDiv = el.querySelector('.flex-grow-1');
+        if (innerDiv) {
+            const existing = innerDiv.querySelector('.chat-msg-content');
+            if (existing) existing.remove();
+            const placeholder = document.createElement('div');
+            placeholder.className = 'chat-msg-content fst-italic';
+            placeholder.style.color = 'var(--text-muted)';
+            placeholder.textContent = 'Message deleted';
+            innerDiv.appendChild(placeholder);
+        }
     }
 
     function connect() {
@@ -187,6 +343,12 @@
                 data.messages.forEach(appendMessage);
             } else if (data.type === 'chat_message') {
                 appendMessage(data);
+            } else if (data.type === 'message_edited') {
+                handleMessageEdited(data);
+            } else if (data.type === 'message_deleted') {
+                handleMessageDeleted(data);
+            } else if (data.type === 'user_typing') {
+                showTyping(data.username);
             }
         };
 
@@ -194,6 +356,8 @@
             setTimeout(connect, 3000);
         };
     }
+
+    chatInput.addEventListener('keydown', sendTyping);
 
     chatForm.addEventListener('submit', function(e) {
         e.preventDefault();

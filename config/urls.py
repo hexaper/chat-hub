@@ -54,7 +54,11 @@ urlpatterns = [
     path('', include('apps.rooms.urls')),
 ]
 
-# Serve media locally in development or all-in-one mode
+# Serve static + media locally in development
+if settings.DEBUG:
+    from django.contrib.staticfiles.urls import staticfiles_urlpatterns
+    urlpatterns += staticfiles_urlpatterns()
+
 if settings.DEBUG or getattr(settings, 'SERVE_MEDIA_LOCALLY', False):
     from django.views.static import serve
     urlpatterns += [
