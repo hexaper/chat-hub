@@ -30,3 +30,6 @@ comms
 .gitignore
 ssl.key
 ssl.crt
+apps/accounts/migrations
+apps/devices/migrations
+apps/rooms/migrations

@@ -3,7 +3,8 @@ from . import views
 
 urlpatterns = [
     # Server URLs
-    path('', views.server_list, name='server_list'),
+    path('', views.landing, name='landing'),
+    path('servers/', views.server_list, name='server_list'),
     path('servers/create/', views.server_create, name='server_create'),
     path('servers/join/', views.server_join, name='server_join'),
     path('servers/<uuid:server_slug>/', views.server_detail, name='server_detail'),

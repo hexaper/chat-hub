@@ -16,7 +16,7 @@
 <body>
 <nav class="navbar navbar-expand-lg">
     <div class="container">
-        <a class="navbar-brand" href="{% url 'server_list' %}"><i class="bi bi-broadcast me-1"></i>VideoCall</a>
+        <a class="navbar-brand" href="{% if user.is_authenticated %}{% url 'server_list' %}{% else %}{% url 'landing' %}{% endif %}"><i class="bi bi-broadcast me-1"></i>VideoCall</a>
         <div class="ms-auto d-flex gap-2 align-items-center">
             {% if user.is_authenticated %}
                 {% if user.is_staff %}

@@ -2,7 +2,9 @@ const peers = {};           // channel_name -> RTCPeerConnection
 const userChannels = {};    // username -> channel_name
 const userSeqs = {};        // username -> seq (join sequence for race detection)
 const vadAnalysers = {};    // id -> { analyser, dataArray, audioCtx }
-const ICE_SERVERS = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+// ICE config is fetched from /api/ice-servers/ at call start.
+// Falls back to STUN-only if the request fails (e.g. network error).
+let iceConfig = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 let localStream = null;
 let socket = null;
 let myChannel = null;
@@ -86,6 +88,22 @@ async function startCall() {
     document.getElementById('localVideo').srcObject = localStream;
     updateMediaIcons('local', false, false);
     if (localStream.getAudioTracks().length > 0) startVAD('local', localStream);
+
+    // Fetch ICE config (includes TURN credentials when configured server-side).
+    // Do this before opening the WebSocket so the config is ready when the first
+    // peer connection is created. Falls back to STUN-only on any error.
+    try {
+        const resp = await fetch('/api/ice-servers/', {
+            headers: { 'X-CSRFToken': getCookie('csrftoken') },
+        });
+        if (resp.ok) {
+            iceConfig = await resp.json();
+            console.log('[WebRTC] ICE config loaded:', iceConfig.iceServers.length, 'server(s)');
+        }
+    } catch (e) {
+        console.warn('[WebRTC] Could not fetch ICE config, falling back to STUN only:', e);
+    }
+
     connectWebSocket(cameraId, micId);
 }
 
@@ -486,7 +504,7 @@ function setupPeerConnection(targetChannel, username, avatarUrl) {
         removePeer(targetChannel);
     }
 
-    const pc = new RTCPeerConnection(ICE_SERVERS);
+    const pc = new RTCPeerConnection(iceConfig);
     peers[targetChannel] = pc;
 
     pc.onicecandidate = ({ candidate }) => {

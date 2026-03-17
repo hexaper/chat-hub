@@ -1,0 +1,174 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block title %}VideoCall — Real-time video rooms{% endblock %}
+
+{% block content %}
+<div class="landing-hero">
+    <div class="landing-hero-text">
+        <div class="landing-eyebrow">
+            <span class="landing-dot"></span>
+            Open, peer-to-peer
+        </div>
+        <h1 class="landing-title">Video calls that<br><span class="landing-accent">just work</span></h1>
+        <p class="landing-desc">
+            Create a server, spin up a room, and invite anyone.
+            No plugins, no downloads — just a link.
+            Video and audio travel directly between browsers.
+        </p>
+        <div class="landing-cta">
+            <a href="{% url 'register' %}" class="btn btn-primary btn-lg landing-btn-primary">
+                <i class="bi bi-person-plus me-2"></i>Get started free
+            </a>
+            <a href="{% url 'login' %}" class="btn landing-btn-ghost btn-lg">
+                Sign in <i class="bi bi-arrow-right ms-1"></i>
+            </a>
+        </div>
+        <p class="landing-note">No credit card. No email verification.</p>
+    </div>
+
+    <div class="landing-hero-graphic" aria-hidden="true">
+        <!-- Animated SVG — video call grid mockup -->
+        <svg class="landing-svg" viewBox="0 0 480 360" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <!-- Glow blobs -->
+            <ellipse cx="240" cy="180" rx="210" ry="150" fill="url(#blobGrad)" opacity="0.18"/>
+            <ellipse cx="100" cy="80" rx="80" ry="60" fill="url(#blobGrad2)" opacity="0.12"/>
+
+            <!-- Main window frame -->
+            <rect x="24" y="20" width="432" height="320" rx="16" fill="#16161d" stroke="#2a2a3a" stroke-width="1.5"/>
+
+            <!-- Title bar -->
+            <rect x="24" y="20" width="432" height="44" rx="16" fill="#1e1e28"/>
+            <rect x="24" y="48" width="432" height="16" fill="#1e1e28"/>
+            <circle cx="52" cy="42" r="7" fill="#ef4444" opacity="0.7"/>
+            <circle cx="74" cy="42" r="7" fill="#f59e0b" opacity="0.7"/>
+            <circle cx="96" cy="42" r="7" fill="#22c55e" opacity="0.7"/>
+            <rect x="184" y="36" width="112" height="12" rx="6" fill="#2a2a3a"/>
+
+            <!-- Video tile 1 — large (spotlighted) -->
+            <rect x="40" y="80" width="248" height="160" rx="10" fill="#0f0f13" stroke="#6366f1" stroke-width="1.5"/>
+            <rect x="40" y="80" width="248" height="160" rx="10" fill="url(#tile1Grad)" opacity="0.5"/>
+            <!-- avatar silhouette -->
+            <circle cx="164" cy="142" r="28" fill="#2a2a3a"/>
+            <ellipse cx="164" cy="185" rx="38" ry="22" fill="#2a2a3a"/>
+            <!-- name tag -->
+            <rect x="48" y="224" width="72" height="8" rx="4" fill="#6366f1" opacity="0.8"/>
+            <!-- mic on indicator -->
+            <circle cx="272" cy="228" r="9" fill="rgba(99,102,241,0.2)" stroke="#6366f1" stroke-width="1"/>
+            <text x="272" y="232" text-anchor="middle" font-size="9" fill="#6366f1">♪</text>
+
+            <!-- Video tile 2 -->
+            <rect x="300" y="80" width="140" height="96" rx="10" fill="#0f0f13" stroke="#2a2a3a" stroke-width="1"/>
+            <rect x="300" y="80" width="140" height="96" rx="10" fill="url(#tile2Grad)" opacity="0.4"/>
+            <circle cx="370" cy="120" r="18" fill="#2a2a3a"/>
+            <ellipse cx="370" cy="148" rx="24" ry="14" fill="#2a2a3a"/>
+            <rect x="308" y="162" width="52" height="6" rx="3" fill="#9090a8" opacity="0.7"/>
+
+            <!-- Video tile 3 -->
+            <rect x="300" y="188" width="140" height="96" rx="10" fill="#0f0f13" stroke="#2a2a3a" stroke-width="1"/>
+            <rect x="300" y="188" width="140" height="96" rx="10" fill="url(#tile3Grad)" opacity="0.4"/>
+            <circle cx="370" cy="228" r="18" fill="#2a2a3a"/>
+            <ellipse cx="370" cy="256" rx="24" ry="14" fill="#2a2a3a"/>
+            <rect x="308" y="270" width="40" height="6" rx="3" fill="#9090a8" opacity="0.7"/>
+            <!-- cam-off icon on tile 3 -->
+            <rect x="426" y="268" width="6" height="6" rx="1" fill="#ef4444" opacity="0.7"/>
+
+            <!-- Bottom toolbar -->
+            <rect x="24" y="296" width="432" height="44" rx="0" fill="#1e1e28"/>
+            <rect x="24" y="296" width="432" height="8" fill="#1e1e28"/>
+            <!-- Toolbar buttons -->
+            <circle cx="200" cy="318" r="14" fill="#2a2a3a"/>
+            <circle cx="240" cy="318" r="14" fill="#6366f1" opacity="0.9"/>
+            <circle cx="280" cy="318" r="14" fill="#2a2a3a"/>
+            <circle cx="320" cy="318" r="14" fill="rgba(239,68,68,0.2)" stroke="rgba(239,68,68,0.4)" stroke-width="1"/>
+            <!-- icons (schematic) -->
+            <rect x="193" y="315" width="14" height="6" rx="2" fill="#9090a8"/>
+            <rect x="233" y="314" width="14" height="8" rx="2" fill="white" opacity="0.9"/>
+            <rect x="272" y="315" width="10" height="6" rx="2" fill="#9090a8"/>
+            <path d="M282 318 L288 314 L288 322 Z" fill="#9090a8"/>
+            <path d="M313 315 L327 315 M313 321 L327 321 M313 318 L327 318" stroke="#ef4444" stroke-width="1.5" stroke-linecap="round"/>
+
+            <!-- Floating chat bubble -->
+            <g class="landing-float-1">
+                <rect x="36" y="252" width="108" height="36" rx="8" fill="#1e1e28" stroke="#2a2a3a" stroke-width="1"/>
+                <rect x="44" y="260" width="60" height="6" rx="3" fill="#2a2a3a"/>
+                <rect x="44" y="272" width="40" height="5" rx="2.5" fill="#6366f1" opacity="0.5"/>
+            </g>
+
+            <!-- Floating ping indicator -->
+            <g class="landing-float-2">
+                <circle cx="446" cy="92" r="12" fill="#1e1e28" stroke="#2a2a3a"/>
+                <circle cx="446" cy="92" r="5" fill="#22c55e" opacity="0.9"/>
+            </g>
+
+            <defs>
+                <linearGradient id="blobGrad" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0%" stop-color="#6366f1"/>
+                    <stop offset="100%" stop-color="#818cf8"/>
+                </linearGradient>
+                <linearGradient id="blobGrad2" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0%" stop-color="#6366f1"/>
+                    <stop offset="100%" stop-color="#a78bfa"/>
+                </linearGradient>
+                <linearGradient id="tile1Grad" x1="164" y1="80" x2="164" y2="240" gradientUnits="userSpaceOnUse">
+                    <stop offset="0%" stop-color="#6366f1" stop-opacity="0.15"/>
+                    <stop offset="100%" stop-color="#6366f1" stop-opacity="0"/>
+                </linearGradient>
+                <linearGradient id="tile2Grad" x1="370" y1="80" x2="370" y2="176" gradientUnits="userSpaceOnUse">
+                    <stop offset="0%" stop-color="#818cf8" stop-opacity="0.1"/>
+                    <stop offset="100%" stop-color="#818cf8" stop-opacity="0"/>
+                </linearGradient>
+                <linearGradient id="tile3Grad" x1="370" y1="188" x2="370" y2="284" gradientUnits="userSpaceOnUse">
+                    <stop offset="0%" stop-color="#6366f1" stop-opacity="0.08"/>
+                    <stop offset="100%" stop-color="#6366f1" stop-opacity="0"/>
+                </linearGradient>
+            </defs>
+        </svg>
+
+        <!-- Floating orbit particles -->
+        <div class="landing-orb landing-orb-1"></div>
+        <div class="landing-orb landing-orb-2"></div>
+        <div class="landing-orb landing-orb-3"></div>
+    </div>
+</div>
+
+<!-- Features section -->
+<div class="landing-features">
+    <div class="landing-feature">
+        <div class="landing-feature-icon">
+            <i class="bi bi-p2p"></i>
+        </div>
+        <h3>Peer-to-peer video</h3>
+        <p>WebRTC routes media directly between participants — the server only relays a handshake, never your video or audio.</p>
+    </div>
+    <div class="landing-feature">
+        <div class="landing-feature-icon">
+            <i class="bi bi-grid-3x3-gap"></i>
+        </div>
+        <h3>Servers &amp; rooms</h3>
+        <p>Organize your community into servers. Create multiple video rooms inside each one and invite members with a link.</p>
+    </div>
+    <div class="landing-feature">
+        <div class="landing-feature-icon">
+            <i class="bi bi-display"></i>
+        </div>
+        <h3>Screen sharing</h3>
+        <p>Share your screen with one click. Participants see it spotlighted automatically. Switch back to camera at any time.</p>
+    </div>
+    <div class="landing-feature">
+        <div class="landing-feature-icon">
+            <i class="bi bi-chat-dots"></i>
+        </div>
+        <h3>Persistent chat</h3>
+        <p>Each server has a text channel with message history, image uploads, and live delivery over WebSockets.</p>
+    </div>
+</div>
+
+<!-- Bottom CTA -->
+<div class="landing-bottom-cta">
+    <h2>Ready to start?</h2>
+    <p>Create your server in seconds.</p>
+    <a href="{% url 'register' %}" class="btn btn-primary btn-lg">
+        <i class="bi bi-arrow-right-circle me-2"></i>Create an account
+    </a>
+</div>
+{% endblock %}

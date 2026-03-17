@@ -36,6 +36,14 @@ def admin_required(view_func):
     return wrapper
 
 
+# ── Landing page ──────────────────────────────────────────────────────────────
+
+def landing(request):
+    if request.user.is_authenticated:
+        return redirect('server_list')
+    return render(request, 'landing.html')
+
+
 # ── Server views ──────────────────────────────────────────────────────────────
 
 @login_required

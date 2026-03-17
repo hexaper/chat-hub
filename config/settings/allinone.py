@@ -47,6 +47,12 @@ STORAGES = {
 # Serve media from filesystem (no S3 in all-in-one mode)
 SERVE_MEDIA_LOCALLY = True
 
+# ── TURN server ───────────────────────────────────────────────────────────────
+TURN_HOST = os.environ.get('TURN_HOST', '')
+TURN_SECRET = os.environ.get('TURN_SECRET', '')
+TURN_TTL = int(os.environ.get('TURN_TTL', 3600))
+TURN_ENABLED = bool(TURN_HOST and TURN_SECRET)
+
 # Security — relaxed for local/self-hosted use
 SECURE_SSL_REDIRECT = os.environ.get('SECURE_SSL_REDIRECT', 'false').lower() == 'true'
 SESSION_COOKIE_SECURE = SECURE_SSL_REDIRECT

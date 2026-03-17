@@ -91,6 +91,12 @@ X_FRAME_OPTIONS = 'DENY'
 SESSION_COOKIE_HTTPONLY = True
 CSRF_COOKIE_HTTPONLY = True
 
+# ── TURN server ───────────────────────────────────────────────────────────────
+TURN_HOST = os.environ.get('TURN_HOST', '')
+TURN_SECRET = os.environ.get('TURN_SECRET', '')
+TURN_TTL = int(os.environ.get('TURN_TTL', 3600))
+TURN_ENABLED = bool(TURN_HOST and TURN_SECRET)
+
 # Logging — print errors to stdout so they appear in container logs
 LOGGING = {
     'version': 1,

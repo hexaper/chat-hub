@@ -23,3 +23,41 @@ services:
       AWS_S3_REGION_NAME: ${AWS_S3_REGION_NAME:-us-east-1}
       AWS_S3_ENDPOINT_URL: ${AWS_S3_ENDPOINT_URL:-}
       AWS_S3_CUSTOM_DOMAIN: ${AWS_S3_CUSTOM_DOMAIN:-}
+      # TURN — leave blank to disable; set both to enable relay via coturn
+      TURN_HOST: ${TURN_HOST:-}
+      TURN_SECRET: ${TURN_SECRET:-}
+      TURN_TTL: ${TURN_TTL:-3600}
+
+  # coturn — optional TURN/STUN relay for users behind strict NAT/firewalls.
+  # Remove this service (and the TURN_* env vars above) if you use a managed
+  # TURN service (Cloudflare Calls, Twilio, etc.) or a separate coturn VPS.
+  #
+  # Required .env variables when this service is active:
+  #   TURN_HOST=<public IP or hostname of this server>
+  #   TURN_SECRET=<random shared secret, min 32 chars>
+  #
+  # Ports: 3478 UDP/TCP (TURN/STUN), 5349 UDP/TCP (TURNS over TLS),
+  #        49152-65535 UDP (relay media — open this range in your firewall)
+  coturn:
+    image: coturn/coturn:latest
+    network_mode: host          # must see its own public IP for TURN relay
+    restart: unless-stopped
+    volumes:
+      - coturn_data:/var/lib/coturn
+    command: >
+      -n
+      --log-file=stdout
+      --external-ip=$$(detect-external-ip)/127.0.0.1
+      --listening-port=3478
+      --tls-listening-port=5349
+      --min-port=49152
+      --max-port=65535
+      --use-auth-secret
+      --static-auth-secret=${TURN_SECRET}
+      --realm=${TURN_HOST}
+      --no-tcp-relay
+      --no-multicast-peers
+      --cli-password=disabled
+
+volumes:
+  coturn_data:

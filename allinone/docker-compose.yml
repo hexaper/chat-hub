@@ -14,10 +14,38 @@ services:
       DB_USER: ${DB_USER:-videocall}
       DB_PASSWORD: ${DB_PASSWORD:-videocall}
       TEST_USER_PASSWORD: ${TEST_USER_PASSWORD:-}
+      # TURN — leave blank to disable; set both to enable relay via coturn
+      TURN_HOST: ${TURN_HOST:-}
+      TURN_SECRET: ${TURN_SECRET:-}
+      TURN_TTL: ${TURN_TTL:-3600}
     volumes:
       - media_files:/app/mediafiles
       - pg_data:/tmp/pgdata
 
+  # coturn — optional TURN/STUN relay for users behind strict NAT/firewalls.
+  # See production docker-compose.yml comments for details.
+  # coturn:
+  #   image: coturn/coturn:latest
+  #   network_mode: host
+  #   restart: unless-stopped
+  #   volumes:
+  #     - coturn_data:/var/lib/coturn
+  #   command: >
+  #     -n
+  #     --log-file=stdout
+  #     --external-ip=$$(detect-external-ip)/127.0.0.1
+  #     --listening-port=3478
+  #     --tls-listening-port=5349
+  #     --min-port=49152
+  #     --max-port=65535
+  #     --use-auth-secret
+  #     --static-auth-secret=${TURN_SECRET}
+  #     --realm=${TURN_HOST}
+  #     --no-tcp-relay
+  #     --no-multicast-peers
+  #     --cli-password=disabled
+
 volumes:
   media_files:
   pg_data:
+  coturn_data:
