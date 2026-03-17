@@ -119,5 +119,25 @@ ServerMember.objects.get_or_create(server=server, user=test2)
 "
 fi
 
-echo "Starting Daphne on 0.0.0.0:8000..."
-exec daphne -b 0.0.0.0 -p 8000 config.asgi:application
+# ── TLS certificate (self-signed, generated once and reused) ─────────────────
+SSL_DIR="/app/mediafiles/ssl"
+SSL_CERT="$SSL_DIR/cert.pem"
+SSL_KEY="$SSL_DIR/key.pem"
+mkdir -p "$SSL_DIR"
+
+if [ ! -f "$SSL_CERT" ] || [ ! -f "$SSL_KEY" ]; then
+    echo "Generating self-signed TLS certificate..."
+    openssl req -x509 -newkey rsa:4096 -sha256 -days 3650 -nodes \
+        -keyout "$SSL_KEY" \
+        -out "$SSL_CERT" \
+        -subj "/CN=localhost" \
+        -addext "subjectAltName=DNS:localhost,IP:127.0.0.1"
+    echo "  Certificate saved to $SSL_DIR"
+fi
+
+echo "Starting Daphne (HTTPS) on 0.0.0.0:8000..."
+exec daphne \
+    --ssl-certificate "$SSL_CERT" \
+    --ssl-key "$SSL_KEY" \
+    -b 0.0.0.0 -p 8000 \
+    config.asgi:application

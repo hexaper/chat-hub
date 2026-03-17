@@ -8,7 +8,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     redis-server \
     libpq-dev libjpeg-dev zlib1g-dev \
-    gnupg2 curl lsb-release && \
+    gnupg2 curl lsb-release openssl && \
     rm -rf /var/lib/apt/lists/*
 
 # Install PostgreSQL 16 from official repo
@@ -38,6 +38,6 @@ RUN SECRET_KEY=build-placeholder \
 EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
-    CMD curl -f http://localhost:8000/healthz/ || exit 1
+    CMD curl -fk https://localhost:8000/healthz/ || exit 1
 
 ENTRYPOINT ["./allinone/entrypoint.sh"]
