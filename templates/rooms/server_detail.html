@@ -119,6 +119,9 @@
     const chatForm = document.getElementById('chatForm');
     const chatInput = document.getElementById('chatInput');
     let socket = null;
+    let oldestId = null;
+    let hasMore = false;
+    let loadingHistory = false;
 
     // ── Presence ──────────────────────────────────────────────────────────────
     const onlineUsers = new Set();
@@ -208,7 +211,19 @@
         return html;
     }
 
-    function appendMessage(msg) {
+    function prependMessages(msgs) {
+        if (!msgs.length) return;
+        const prevHeight = messagesDiv.scrollHeight;
+        msgs.forEach(msg => {
+            const el = buildMessageEl(msg);
+            messagesDiv.insertBefore(el, messagesDiv.firstChild);
+        });
+        // Restore scroll position so user stays at the same visual spot
+        messagesDiv.scrollTop += messagesDiv.scrollHeight - prevHeight;
+        if (msgs[0]) oldestId = msgs[0].id;
+    }
+
+    function buildMessageEl(msg) {
         const isOwn = msg.username === USERNAME;
         const isDeleted = !!msg.deleted_at;
         const el = document.createElement('div');
@@ -256,7 +271,11 @@
                 }
             });
         }
+        return el;
+    }
 
+    function appendMessage(msg) {
+        const el = buildMessageEl(msg);
         messagesDiv.appendChild(el);
         messagesDiv.scrollTop = messagesDiv.scrollHeight;
     }
@@ -354,12 +373,18 @@
                 onlineUsers.clear();
                 (data.online_users || []).forEach(u => onlineUsers.add(u));
                 renderOnline();
+                hasMore = !!data.has_more;
+                oldestId = data.messages.length ? data.messages[0].id : null;
             } else if (data.type === 'chat_message') {
                 appendMessage(data);
             } else if (data.type === 'message_edited') {
                 handleMessageEdited(data);
             } else if (data.type === 'message_deleted') {
                 handleMessageDeleted(data);
+            } else if (data.type === 'history_page') {
+                loadingHistory = false;
+                hasMore = !!data.has_more;
+                prependMessages(data.messages);
             } else if (data.type === 'user_typing') {
                 showTyping(data.username);
             } else if (data.type === 'presence') {
@@ -383,6 +408,13 @@
     const imagePreviewImg = document.getElementById('imagePreviewImg');
     const imagePreviewClear = document.getElementById('imagePreviewClear');
     let pendingFile = null;
+
+    messagesDiv.addEventListener('scroll', function() {
+        if (messagesDiv.scrollTop < 80 && hasMore && !loadingHistory && socket && socket.readyState === WebSocket.OPEN) {
+            loadingHistory = true;
+            socket.send(JSON.stringify({ type: 'load_history', before_id: oldestId }));
+        }
+    });
 
     chatInput.addEventListener('keydown', sendTyping);
 

@@ -18,16 +18,23 @@ Before any feature work, the ground rules:
 
 ## Current Status
 
-As of the latest commit, Chat Hub is a functional MVP with core video chat, text chat, and user management features. Key implemented components:
-- P2P WebRTC video/audio calls with STUN (no TURN yet)
-- Real-time text chat with image uploads via WebSockets
-- Server/room hierarchy with invite codes and basic permissions
-- User authentication, profiles, and device management
-- Docker deployment (all-in-one and production modes)
-- SQLite/PostgreSQL support with Redis for channels
-- **82-test suite** covering models, views, forms, permissions, WebSocket consumers (both `RoomConsumer` and `ServerChatConsumer`), and integration flows — runs in ~35s with `--parallel`
+Phases 1 and 2 are complete. Chat Hub is a fully functional real-time video conferencing and chat platform.
 
-Not yet implemented: rate limiting, TURN server, screen sharing, chat editing/deletion, CI/CD, performance optimizations, or advanced features like SFU or mobile support.
+**Implemented:**
+- P2P WebRTC video/audio calls with STUN + optional TURN relay (coturn HMAC credentials)
+- Real-time server and room chat with image uploads, message editing (15-min window), soft deletion
+- Typing indicators (debounced, ephemeral, no DB writes)
+- User presence (green dot per online member; derived from active WebSocket connections)
+- Infinite scroll chat history (50 messages per page, cursor-based via WebSocket)
+- Rate limiting (login/register 5/min, image upload 10/min, chat 30/min) — Redis-backed
+- WebSocket origin validation, custom error pages, health check endpoint
+- Self-signed TLS in the allinone container; WhiteNoise for static files in production
+- Unique email addresses enforced at model, form, and DB levels
+- Public landing page at `/`
+- Docker deployment (all-in-one with bundled PostgreSQL + Redis, and production with external services)
+- Test suite covering all of the above
+
+**Not yet implemented:** CI/CD pipeline, database indexes, structured logging, server roles/bans, chat search, notifications/mentions, PWA support, SFU architecture.
 
 The roadmap below outlines the prioritized path to production-grade stability and feature completeness.
 
@@ -70,99 +77,40 @@ The roadmap below outlines the prioritized path to production-grade stability an
 
 ---
 
-## Phase 1 — Foundation (Weeks 1-4)
-
-The goal: make the existing codebase safe to change with confidence.
+## Phase 1 — Foundation ✅ Complete
 
 ### 1.1 Test Suite ✅ Done
 
-**82 tests, all passing.** Runs in ~35s with `--parallel`, ~68s sequentially. Zero new dependencies.
+Test suite covers models, views, forms, permissions, WebSocket consumers (`ConsumerTests`, `RoomChatConsumerTests`), integration flows, and rate limiting. Consumer tests use `TransactionTestCase`; all other classes use `TestCase` with `setUpTestData`.
 
 ```bash
-python manage.py test --settings=config.settings.development --parallel --keepdb
+python manage.py test --settings=config.settings.development --keepdb
+# Note: --parallel is broken on Python 3.13 — run sequentially
 ```
 
-**Coverage:**
-- `apps/accounts/tests/` — auth boundaries (login required, staff required), form validation (duplicate username, password mismatch, profile form)
-- `apps/rooms/tests/` — model logic (invite codes, password hashing, `last_empty_at`), form validation, view permissions (non-member/non-owner/non-host blocks), `ServerChatConsumer` (unauthenticated + non-member rejection, history on connect, broadcast, image ownership, empty/long message handling, disconnect), `RoomConsumer` (unauthenticated rejection, `my_channel` on connect, `user_joined` broadcast, `offer`/`answer`/`ice-candidate` relay, `media_state` broadcast, host kick/mute, non-host kick/mute ignored, `user_left` on disconnect, `last_empty_at` set when room empties), integration flows (full server→room flow, invite code join, password-protected room entry)
-- `apps/devices/tests/` — auth boundaries, device registration (valid payload, missing fields, invalid type, invalid JSON)
+### 1.2 Rate Limiting ✅ Done
 
-**Technology choice: Django's built-in test framework (`django.test`)**
+`@ratelimit` decorator in `utils/ratelimit.py` backed by Redis cache (DB 1). Applied: login/register 5/min per IP, image upload 10/min per user, chat 30/min per user. HTML views redirect with a toast warning; AJAX views return `{"error":"rate_limited"}` 429; WebSocket consumers silently drop.
 
-*Why not pytest?* Django's `TestCase`, `TransactionTestCase`, and `channels.testing.WebsocketCommunicator` work out of the box with `manage.py test`. Zero config, zero new dependencies.
+### 1.3 WebSocket Origin Validation ✅ Done
 
-*Why not factory-boy?* `Server.objects.create(name='Test', owner=user)` is already readable. A factory library adds indirection for no meaningful gain at this scale.
+`AllowedHostsOriginValidator` wraps the WebSocket router in `config/asgi.py`.
 
-*Why `TransactionTestCase` for consumer tests?* Django Channels consumer code runs in a separate thread/coroutine context. `TestCase` wraps everything in one transaction that the consumer thread can't see. `TransactionTestCase` commits each operation so the consumer thread sees the data, at the cost of slower table truncation between tests.
+### 1.4 Custom Error Pages ✅ Done
 
-*Why `setUpTestData` on non-consumer test classes?* Creates DB fixtures once per class (in a savepoint) rather than re-inserting before every test method. Safe for classes where test methods don't mutate the shared fixture objects.
+`templates/404.html`, `templates/403.html`, `templates/500.html` extend `base.html` with dark-themed error pages.
 
-### 1.2 Rate Limiting
+### 1.5 Health Check Endpoint ✅ Done
 
-**The problem:** Login, registration, chat send, image upload, and device registration have no rate limits. A script can brute-force passwords, spam chat, or exhaust S3 storage.
-
-**Technology choice: Django's built-in cache framework + a simple decorator**
-
-*Why not django-ratelimit?* It's a well-maintained library, but this is a ~40-line decorator using Django's cache backend. The logic is: increment a cache key `ratelimit:{ip_or_user}:{view_name}`, check if it exceeds threshold, return 429 if so. Redis is already running — use it as the cache backend.
-
-**Implementation:**
-
-```python
-# In base.py — reuse the existing Redis for caching
-CACHES = {
-    'default': {
-        'BACKEND': 'django.core.cache.backends.redis.RedisCache',
-        'LOCATION': 'redis://127.0.0.1:6379/1',  # DB 1, separate from channel layers on DB 0
-    }
-}
-```
-
-A `@ratelimit(key='ip', rate='5/m')` decorator on `login_view`, `register_view`. A `@ratelimit(key='user', rate='30/m')` on chat message send. A `@ratelimit(key='user', rate='10/m')` on image upload.
-
-For WebSocket consumers: check rate in `receive()` using the same cache, drop messages silently if exceeded.
-
-Implement the `@ratelimit` decorator in a new `utils/ratelimit.py` file. Apply to views in `apps/accounts/views.py` (login/register) and `apps/rooms/consumers.py` (chat send). Update `config/settings/base.py` to add the Redis cache config.
-
-**New dependencies: 0.** Django 4.0+ has a built-in Redis cache backend.
-
-### 1.3 WebSocket Origin Validation
-
-**The problem:** `RoomConsumer` and `ServerChatConsumer` accept connections from any origin. A malicious page on `evil.com` could open a WebSocket to your server and send/receive messages as the authenticated user (via session cookie).
-
-**Fix:** Add an `AllowedHostsOriginValidator` wrapper in `config/asgi.py`. Django Channels ships this — it's a one-line change:
-
-```python
-from channels.security.websocket import AllowedHostsOriginValidator
-application = ProtocolTypeRouter({
-    'websocket': AllowedHostsOriginValidator(
-        AuthMiddlewareStack(URLRouter(websocket_urlpatterns))
-    ),
-})
-```
-
-**New dependencies: 0.** Already in `channels`.
-
-### 1.4 Custom Error Pages
-
-Three templates: `templates/404.html`, `templates/500.html`, `templates/403.html`. Extend `base.html`, match the dark theme. Add a "Go home" link. 20 minutes of work, big UX improvement in production.
-
-**New dependencies: 0.**
-
-### 1.5 Health Check Endpoint
-
-The Docker `HEALTHCHECK` hits `/` which requires authentication — it may report unhealthy when the app is fine.
-
-Add a `/healthz/` view that returns `200 OK` with a simple DB query (`SELECT 1`) and Redis ping. No authentication required. Update the `HEALTHCHECK` in Dockerfile to use it.
-
-**New dependencies: 0.**
+`GET /healthz/` — DB `SELECT 1` + Redis ping. Returns `{"status":"ok"}` or 503 with error detail. Both Dockerfiles updated to use it.
 
 ---
 
-## Phase 2 — Core Feature Gaps (Weeks 5-10)
+---
 
-The goal: fill the features users expect from a video chat app.
+## Phase 2 — Core Feature Gaps ✅ Complete
 
-### 2.1 TURN Server
+### 2.1 TURN Server ✅ Done
 
 **The problem:** Only STUN is configured. STUN discovers your public IP but cannot relay traffic. Users behind symmetric NAT, strict corporate firewalls, or carrier-grade NAT (common on mobile networks) simply cannot establish a peer connection. This affects 10-30% of users depending on geography and ISP.
 
@@ -197,7 +145,7 @@ const pc = new RTCPeerConnection(iceConfig);
 
 **New Python dependencies: 0.** New infrastructure: 1 coturn instance (or managed service).
 
-### 2.2 Screen Sharing
+### 2.2 Screen Sharing ✅ Done
 
 **The problem:** Expected feature in any video conferencing app. No `getDisplayMedia()` call exists in `webrtc.js`.
 
@@ -218,7 +166,7 @@ That would require renegotiation (new offer/answer) with every peer, and peers w
 
 **New dependencies: 0.** Pure browser API + existing WebSocket signaling.
 
-### 2.3 Chat Message Editing & Deletion
+### 2.3 Chat Message Editing & Deletion ✅ Done
 
 **Design choice: soft delete with `deleted_at`, edit with `updated_at`**
 
@@ -241,11 +189,11 @@ class ChatMessage(models.Model):
     deleted_at = models.DateTimeField(null=True, blank=True)
 ```
 
-Two new WebSocket message types in `ServerChatConsumer`: `edit_message` and `delete_message`. Both broadcast to the group so all connected clients update in real-time.
+Implemented for both `ServerChatConsumer` and `RoomChatConsumer`. Inline textarea editor in both chat UIs; edit button auto-hides after the window closes. Deleted messages show a "Message deleted" placeholder, retained in history.
 
 **New dependencies: 0.**
 
-### 2.4 Typing Indicators
+### 2.4 Typing Indicators ✅ Done
 
 **Design choice: stateless, debounced, ephemeral**
 
@@ -257,12 +205,11 @@ Typing indicators should never touch the database. They're fire-and-forget WebSo
 - Client shows "X is typing..." for 5 seconds, resets timer on each new event
 - No new model, no new field, no database query
 
-**Why not track typing state server-side?**
-It's unnecessary state. The consumer just relays the event. If the user disconnects, they stop typing — the 5-second client-side timeout handles cleanup naturally.
+Implemented for both `ServerChatConsumer` and `RoomChatConsumer`. Client debounces to 1 send per 3 seconds; indicator auto-hides after 5 seconds; supports multiple simultaneous typers.
 
 **New dependencies: 0.**
 
-### 2.5 User Presence
+### 2.5 User Presence ✅ Done
 
 **Design choice: WebSocket connection = online, no heartbeat polling**
 
@@ -275,11 +222,19 @@ Database writes on every action are expensive and unnecessary. The WebSocket con
 - Client maintains a local `Set` of online usernames, renders green/grey dots
 - For the initial state on connect: include `online_users` list in the `history` payload (the consumer knows who's in the group via `self.channel_layer.group_channels` or a simple Redis set)
 
+Implemented using a module-level `_presence` dict (`server_slug → {channel_name: username}`) guarded by `asyncio.Lock`. Multiple tabs by the same user collapse to one entry via `set()`. Resets on server restart — clients reconnect and re-broadcast presence naturally.
+
 **New dependencies: 0.**
+
+### Chat History Pagination ✅ Done
+
+Implemented via WebSocket: client sends `{type: "load_history", before_id: <id>}` when scrolling to the top of the chat; consumer replies with `{type: "history_page", messages: [...], has_more: bool}`. Older messages are prepended while scroll position is preserved. Works in both server chat and room chat.
 
 ---
 
-## Phase 3 — Operational Maturity (Weeks 11-16)
+---
+
+## Phase 3 — Operational Maturity (Next Up)
 
 The goal: make the app reliable, observable, and safe to deploy frequently.
 
@@ -374,27 +329,9 @@ Cache invalidation is the second hardest problem in computer science. Cache only
 
 **New dependencies: 0.** Django 4.0+ includes `django.core.cache.backends.redis.RedisCache`.
 
-### 3.4 Chat Pagination
+### 3.4 Chat Pagination ✅ Done (moved to Phase 2)
 
-**The problem:** `ServerChatConsumer.get_history()` loads the last 50 messages on connect. There's no way to load older messages.
-
-**Design choice: cursor-based REST endpoint, not WebSocket**
-
-*Why REST and not a WebSocket message type?*
-
-Historical data is a request-response pattern: "give me messages older than X". WebSocket is designed for real-time push, not request-response. A REST endpoint is:
-- Cacheable (same cursor = same response)
-- Testable with standard tools (curl, browser, test client)
-- Doesn't complicate the consumer with pagination state
-
-**Implementation:**
-```
-GET /servers/<uuid>/chat/history/?before=<message_id>&limit=50
-```
-
-Returns JSON array of messages older than the given ID. Client calls this on scroll-to-top. The consumer still sends the last 50 on connect for fast initial load.
-
-**New dependencies: 0.** Django `JsonResponse` + queryset filtering.
+Implemented via WebSocket (`load_history` / `history_page`) rather than REST. Cursor-based (by message ID), 50 messages per page, works for both server and room chat. See Phase 2 notes above.
 
 ### 3.5 Structured Logging
 
@@ -742,3 +679,8 @@ Record architectural decisions as they're made, so future contributors understan
 | — | WhiteNoise over nginx | One fewer process to configure and monitor, good enough for moderate traffic |
 | — | S3 for media in prod, filesystem in dev/allinone | Standard pattern, swappable via Django STORAGES setting |
 | — | Server-rendered templates over SPA | No build step, no API layer, faster initial page load, works without JS for basic navigation |
+| — | Soft delete for chat messages | Audit trail, simpler broadcast (`message_deleted` event), reversible in admin, safe with future FK references |
+| — | In-process `_presence` dict over Redis set | Zero new dependencies, safe within single Daphne process, resets naturally on restart |
+| — | Typing indicators over WebSocket, no DB | Fire-and-forget relay is enough; 5s client timeout handles disconnect cleanup without any server state |
+| — | Pagination via WebSocket (`load_history`) over REST | Keeps all chat state in one transport; avoids a second request lifecycle and auth flow for the same session |
+| — | Removed `ASGIStaticFilesHandler` from `asgi.py` | It intercepted `/static/` before WhiteNoise and couldn't serve hashed filenames from `STATIC_ROOT`; `staticfiles_urlpatterns()` handles dev, WhiteNoise handles prod |

@@ -24,15 +24,19 @@ A real-time video conferencing and chat platform built with Django, Django Chann
 
 ## Features
 
-- **Servers** -- Create public or private servers with 8-character invite codes. Public servers appear on the homepage; private servers require an invite link.
-- **Video Rooms** -- WebRTC peer-to-peer video/audio calls within servers. Rooms support optional password protection.
-- **Real-Time Chat** -- Per-server text chat with image uploads, delivered over WebSockets. Message history (last 50 messages) is loaded on connect.
-- **User Accounts** -- Registration, login, profile with avatar and bio, unified settings page with live camera/mic preview.
-- **Device Management** -- Camera and microphone selection persisted per user via the browser MediaDevices API.
-- **Admin Panel** -- Staff users (`is_staff=True`) can manage servers, rooms, and users from `/admin-panel/`.
-- **Room Host Controls** -- The room creator can kick participants and force-mute their microphones.
-- **Auto-Cleanup** -- Rooms empty for 15+ minutes are automatically deactivated.
-- **Dark Theme** -- Modern responsive UI with Bootstrap 5.
+- **Servers** — Create public or private servers with 8-character invite codes. Public servers appear on the homepage; private servers require an invite link.
+- **Video Rooms** — WebRTC peer-to-peer video/audio calls within servers. Rooms support optional password protection, screen sharing, camera/mic toggle, and host controls (kick, force-mute).
+- **Real-Time Chat** — Per-server and per-room text chat with image uploads, delivered over WebSockets. Infinite scroll loads older messages on demand (50 per page).
+- **Message Editing & Deletion** — Edit your own messages within a 15-minute window. Soft delete shows a "Message deleted" placeholder. All changes broadcast in real time to connected members.
+- **Typing Indicators** — Debounced, ephemeral "X is typing…" indicator. No database writes — purely WebSocket relay.
+- **User Presence** — Green dot next to each online member in the chat panel. Presence is derived from active WebSocket connections; no polling.
+- **User Accounts** — Registration, login, profile with avatar and bio, account settings with live camera/mic preview. Email addresses are unique per account.
+- **Rate Limiting** — Login and registration capped at 5/min per IP; image uploads at 10/min per user; chat messages at 30/min per user. Backed by Redis cache.
+- **Health Check** — `GET /healthz/` performs a DB query and Redis ping; used by Docker `HEALTHCHECK`.
+- **TURN Server Support** — Optional coturn integration for users behind strict NAT/firewalls. Credentials generated server-side via HMAC and served from `/api/ice-servers/`.
+- **Admin Panel** — Staff users (`is_staff=True`) can manage servers, rooms, and users from `/admin-panel/`.
+- **Auto-Cleanup** — Rooms empty for 15+ minutes are automatically deactivated via a management command.
+- **Dark Theme** — Modern responsive UI with Bootstrap 5.
 
 ## Tech Stack
 
@@ -41,10 +45,10 @@ A real-time video conferencing and chat platform built with Django, Django Chann
 | Backend | Django | 5.2 |
 | WebSockets / ASGI | Django Channels + Daphne | 4.3 / 4.2 |
 | Channel Layer | channels-redis | 4.3 |
-| Database (dev) | SQLite | -- |
+| Database (dev) | SQLite | — |
 | Database (prod) | PostgreSQL | 16 |
-| Message Broker | Redis | 7.x |
-| Frontend | Bootstrap 5, vanilla JS | -- |
+| Message Broker / Cache | Redis | 7.x |
+| Frontend | Bootstrap 5, vanilla JS | — |
 | Forms | django-crispy-forms + crispy-bootstrap5 | 2.6 |
 | Static Files (prod) | WhiteNoise | 6.12 |
 | Media Storage (prod) | S3 via django-storages + boto3 | 1.14 |
@@ -57,51 +61,58 @@ A real-time video conferencing and chat platform built with Django, Django Chann
                   /     \
           HTTPS/WSS     WebRTC (P2P)
               |              |
-         [ Daphne ]     STUN Server
-         (ASGI)       (stun.l.google.com:19302)
+         [ Daphne ]     STUN/TURN Server
+         (ASGI)
           /     \
      HTTP       WebSocket
     views       consumers
       |           |
    Django      Channels
-   ORM         Redis
-      \         /
-     PostgreSQL
+   ORM         Redis (DB 0)
+      \
+   PostgreSQL     Redis cache (DB 1)
 ```
 
 ### Apps
 
 | App | Responsibility |
 |-----|---------------|
-| `apps.accounts` | Custom `User` model (extends `AbstractUser` with `avatar` and `bio`). Views for registration, login, logout, profile, and account settings. |
-| `apps.rooms` | Core application. Models: `Server`, `ServerMember`, `Room`, `RoomParticipant`, `ChatMessage`. WebSocket consumers: `RoomConsumer` (WebRTC signaling) and `ServerChatConsumer` (text chat). Admin panel views. |
+| `apps.accounts` | Custom `User` model (extends `AbstractUser` with `avatar`, `bio`, unique `email`). Views for registration, login, logout, profile, and account settings. |
+| `apps.rooms` | Core application. Models: `Server`, `ServerMember`, `Room`, `RoomParticipant`, `ChatMessage`, `RoomChatMessage`. WebSocket consumers: `RoomConsumer` (WebRTC signaling), `ServerChatConsumer` (server chat), `RoomChatConsumer` (room chat). Admin panel views. Landing page. |
 | `apps.devices` | `Device` model storing browser media devices (camera/microphone). REST endpoint for device registration from the frontend. |
 
-### Server / Room Hierarchy
+### Data Model Hierarchy
 
-- **Server** -- Has a name, owner, avatar, description, invite code, and public/private flag. Members join via invite link or by browsing public servers.
-- **Room** -- Belongs to a server. Created by a member (the "host"). Supports optional password protection. Tracks `last_empty_at` for auto-cleanup.
-- **ChatMessage** -- Text or image message scoped to a server. Delivered in real time via WebSocket and persisted to the database.
+```
+User (unique email, nullable)
+└── Server (owner FK)
+    ├── ServerMember (User ↔ Server M2M through table)
+    ├── ChatMessage (server-scoped chat; has updated_at, deleted_at)
+    └── Room (belongs to Server, created by "host" User)
+        ├── RoomParticipant (User ↔ Room M2M, stores channel_name + device IDs)
+        ├── RoomChatMessage (room-scoped chat; has updated_at, deleted_at)
+        └── last_empty_at (drives auto-cleanup command)
+```
+
+`ChatMessage` and `RoomChatMessage` use **soft delete** (`deleted_at`): the record is retained with content cleared in API responses. Edits are allowed within a 15-minute window (`updated_at` is set on save).
 
 ### Settings Structure
 
-Settings are split across `config/settings/`:
-
 | File | Purpose |
 |------|---------|
-| `base.py` | Shared configuration (installed apps, middleware, auth, templates, static/media paths) |
-| `development.py` | `DEBUG=True`, SQLite, `ALLOWED_HOSTS=['*']` |
-| `production.py` | `DEBUG=False`, external PostgreSQL (SSL required), external Redis, S3 media storage, WhiteNoise static files, full security headers |
-| `allinone.py` | `DEBUG=False`, bundled PostgreSQL (localhost), bundled Redis, local media storage, WhiteNoise static files, relaxed security for self-hosting |
+| `base.py` | Shared configuration (installed apps, middleware, auth, templates, static/media paths, rate limiting cache) |
+| `development.py` | `DEBUG=True`, SQLite, `ALLOWED_HOSTS=['*']`, static files served via `staticfiles_urlpatterns()` |
+| `production.py` | `DEBUG=False`, external PostgreSQL (SSL), external Redis, S3 media, WhiteNoise static files, full security headers |
+| `allinone.py` | `DEBUG=False`, bundled PostgreSQL + Redis, local media, WhiteNoise, self-signed TLS on port 8000 |
 
 ### WebRTC Signaling Flow
 
-1. User opens a room. `webrtc.js` calls `navigator.mediaDevices.enumerateDevices()` and registers devices via `POST /devices/register/`.
+1. User opens a room. `webrtc.js` fetches ICE server config from `/api/ice-servers/` (includes TURN credentials when configured).
 2. A WebSocket connection opens to `ws://.../ws/rooms/<room-slug>/`.
-3. `RoomConsumer.connect()` adds the user to the channel group, clears `last_empty_at`, and broadcasts `user_joined` with the user's channel name.
-4. Existing peers receive `user_joined` and create an SDP offer, sent as an `offer` message targeting the new peer's channel.
+3. `RoomConsumer.connect()` adds the user to the channel group and broadcasts `user_joined` with avatar URL and join sequence number.
+4. Existing peers create an SDP offer targeting the new peer's channel name.
 5. The new peer responds with an `answer`. Both sides exchange `ice-candidate` messages.
-6. Direct peer-to-peer media streams are established using STUN server `stun:stun.l.google.com:19302`.
+6. Direct P2P media established via STUN (`stun:stun.l.google.com:19302`) or relayed via TURN if configured.
 7. On disconnect, `user_left` is broadcast and `last_empty_at` is set if the room becomes empty.
 
 ## Prerequisites
@@ -137,7 +148,7 @@ To stop the server, press `Ctrl+C`.
 
 ## Testing
 
-The application includes a comprehensive test suite covering models, views, forms, permissions, integration flows, and WebSocket consumers.
+The application includes a comprehensive test suite covering models, views, forms, permissions, WebSocket consumers, integration flows, and rate limiting.
 
 ### Running Tests
 
@@ -145,49 +156,38 @@ Ensure Redis is running, then activate the virtual environment and run the tests
 
 ```bash
 source venv/bin/activate
-python manage.py test --settings=config.settings.development --verbosity=1
+python manage.py test --settings=config.settings.development --keepdb
 ```
 
-- **Total Tests:** 58
-- **Coverage:** Models, views, forms, permissions, WebSocket consumers, and integration tests
-- **Database:** Uses an in-memory SQLite database for fast execution
-- **WebSocket Tests:** Test real-time chat, image sharing, authentication, and message broadcasting
+**Note:** Do not use `--parallel` — it causes a pickle error on Python 3.13.
 
 ### Test Structure
 
-Tests are organized by app:
+| Directory | What's tested |
+|-----------|---------------|
+| `apps/accounts/tests/` | Registration, login, profile, auth boundaries, rate limiting |
+| `apps/rooms/tests/` | Server/room CRUD, permissions, WebSocket consumers (`ConsumerTests`, `RoomChatConsumerTests`), integration flows, rate limiting |
+| `apps/devices/tests/` | Device registration endpoint, auth boundaries |
+| `utils/tests.py` | `@ratelimit` decorator unit tests |
 
-- `apps/accounts/tests/` -- User registration, login, profile, and authentication boundaries
-- `apps/rooms/tests/` -- Server/room creation, permissions, chat messages, WebSocket consumers
-- `apps/devices/tests/` -- Device registration and management
-
-If tests fail, ensure Redis is running (`redis-cli ping` should return `PONG`) and all dependencies are installed.
+Consumer tests use `TransactionTestCase` (required — Channels consumer coroutines can't see `TestCase`'s uncommitted transaction). All other classes use `TestCase` with `setUpTestData`.
 
 ### Manual Setup
-
-If you prefer to set things up manually:
 
 ```bash
 python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
-# Ensure Redis is running
 redis-cli ping  # Should return PONG
 
-# Run migrations
 DJANGO_SETTINGS_MODULE=config.settings.development python manage.py migrate
+DJANGO_SETTINGS_MODULE=config.settings.development python manage.py createsuperuser  # optional
 
-# Create a superuser (optional)
-DJANGO_SETTINGS_MODULE=config.settings.development python manage.py createsuperuser
-
-# Start the server
+# HTTP only:
 DJANGO_SETTINGS_MODULE=config.settings.development python manage.py runserver 0.0.0.0:8000
-```
 
-**Note:** Django's built-in `runserver` does not support WebSockets. For full WebSocket functionality (video calls, real-time chat), use Daphne:
-
-```bash
+# With WebSockets (required for chat and video):
 DJANGO_SETTINGS_MODULE=config.settings.development daphne -b 0.0.0.0 -p 8000 config.asgi:application
 ```
 
@@ -195,7 +195,7 @@ DJANGO_SETTINGS_MODULE=config.settings.development daphne -b 0.0.0.0 -p 8000 con
 
 ### All-in-One Container
 
-A single container that bundles PostgreSQL 16 and Redis alongside the Django application. Best for self-hosting, demos, or development without installing external services.
+A single container that bundles PostgreSQL 16 and Redis alongside the Django application. Starts Daphne with a self-signed TLS certificate — access at `https://localhost:8000` (browser will warn about the self-signed cert).
 
 **Using Docker Compose (recommended):**
 
@@ -210,67 +210,46 @@ docker build -t chat-hub -f allinone/Dockerfile .
 docker run -p 8000:8000 chat-hub
 ```
 
-The all-in-one mode uses `config.settings.allinone` which stores media files locally (no S3 required) and connects to the bundled PostgreSQL and Redis on localhost.
-
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DB_NAME` | `videocall` | PostgreSQL database name |
 | `DB_USER` | `videocall` | PostgreSQL user |
 | `DB_PASSWORD` | `videocall` | PostgreSQL password |
-| `TEST_USER_PASSWORD` | *(empty)* | If set, creates `test1` and `test2` users with this password and a "Test Server" |
-| `ALLOWED_HOSTS` | `localhost` | Comma-separated allowed hostnames |
-| `SECRET_KEY` | *(auto-generated)* | Django secret key; auto-generated and persisted to `/app/mediafiles/.secret_key` if not provided |
+| `TEST_USER_PASSWORD` | *(empty)* | If set, creates `test1`/`test2` users and a "Test Server" |
+| `SECRET_KEY` | *(auto-generated)* | Persisted to `/app/mediafiles/.secret_key` on first run |
+| `TURN_HOST` | *(empty)* | TURN server hostname (enables TURN when set alongside `TURN_SECRET`) |
+| `TURN_SECRET` | *(empty)* | HMAC secret shared with coturn |
 
-The Compose file defines two persistent volumes: `media_files` (uploaded images) and `pg_data` (PostgreSQL data directory).
+The Compose file defines two persistent volumes: `media_files` (uploads + TLS cert + secret key) and `pg_data` (PostgreSQL data).
 
 ### Production (External Services)
 
 For production, the application container connects to externally managed PostgreSQL, Redis, and S3-compatible storage.
 
-**Using Docker Compose:**
-
-Create a `.env` file in the project root with the required variables (see the table below), then:
-
 ```bash
 docker compose up --build
 ```
 
-**Using Docker directly:**
-
-```bash
-docker build -t chat-hub .
-docker run -p 8000:8000 \
-  -e ALLOWED_HOSTS=yourdomain.com \
-  -e SECRET_KEY=your-secret-key \
-  -e POSTGRES_HOST=your-db-host \
-  -e POSTGRES_NAME=your-db-name \
-  -e POSTGRES_USER=your-db-user \
-  -e POSTGRES_PASS=your-db-password \
-  -e REDIS_HOST=redis://your-redis-host:6379 \
-  -e AWS_STORAGE_BUCKET_NAME=your-bucket \
-  -e AWS_ACCESS_KEY_ID=your-key \
-  -e AWS_SECRET_ACCESS_KEY=your-secret \
-  chat-hub
-```
-
-The entrypoint script automatically runs migrations, optionally seeds test users (`TEST_USER_PASSWORD`) and an admin user (`ADMIN_USER_PASSWORD`), then starts Daphne on port 8000.
+Create a `.env` file in the project root (see Environment Variables below).
 
 **Example `.env`:**
 
 ```
 SECRET_KEY=your-random-secret-key
-ALLOWED_HOSTS=myapp.koyeb.app
-POSTGRES_HOST=ep-xxx.pg.koyeb.app
-POSTGRES_NAME=mydb
+ALLOWED_HOSTS=myapp.example.com
+POSTGRES_HOST=db.example.com
+POSTGRES_NAME=chathub
 POSTGRES_USER=admin
 POSTGRES_PASS=mypassword
-REDIS_HOST=rediss://default:token@my-redis.upstash.io:6379
+REDIS_HOST=redis://redis.example.com:6379
 AWS_STORAGE_BUCKET_NAME=my-media-bucket
 AWS_ACCESS_KEY_ID=AKIA...
-AWS_SECRET_ACCESS_KEY=your-secret-key
+AWS_SECRET_ACCESS_KEY=your-secret
 SECURE_SSL_REDIRECT=false
 TEST_USER_PASSWORD=MyTestPass123.
 ADMIN_USER_PASSWORD=AdminPass456.
+TURN_HOST=turn.example.com
+TURN_SECRET=my-turn-secret
 ```
 
 ## Environment Variables
@@ -279,72 +258,76 @@ ADMIN_USER_PASSWORD=AdminPass456.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `SECRET_KEY` | No* | Auto-generated | Django secret key; auto-generated and persisted if not set |
-| `ALLOWED_HOSTS` | **Yes** | -- | Comma-separated hostnames (e.g., `yourdomain.com,www.yourdomain.com`) |
-| `POSTGRES_HOST` | Yes | -- | PostgreSQL host |
-| `POSTGRES_NAME` | Yes | -- | PostgreSQL database name |
-| `POSTGRES_USER` | Yes | -- | PostgreSQL user |
-| `POSTGRES_PASS` | Yes | -- | PostgreSQL password |
-| `REDIS_HOST` | Yes | -- | Full Redis URL (e.g., `redis://redis.example.com:6379`) |
-| `AWS_STORAGE_BUCKET_NAME` | Yes | -- | S3 bucket name for media uploads |
-| `AWS_ACCESS_KEY_ID` | Yes | -- | S3 access key |
-| `AWS_SECRET_ACCESS_KEY` | Yes | -- | S3 secret key |
+| `SECRET_KEY` | No* | Auto-generated | Django secret key; persisted if not set |
+| `ALLOWED_HOSTS` | **Yes** | — | Comma-separated hostnames |
+| `POSTGRES_HOST` | Yes | — | PostgreSQL host |
+| `POSTGRES_NAME` | Yes | — | PostgreSQL database name |
+| `POSTGRES_USER` | Yes | — | PostgreSQL user |
+| `POSTGRES_PASS` | Yes | — | PostgreSQL password |
+| `REDIS_HOST` | Yes | — | Full Redis URL |
+| `AWS_STORAGE_BUCKET_NAME` | Yes | — | S3 bucket for media |
+| `AWS_ACCESS_KEY_ID` | Yes | — | S3 access key |
+| `AWS_SECRET_ACCESS_KEY` | Yes | — | S3 secret |
 | `AWS_S3_REGION_NAME` | No | `us-east-1` | S3 region |
-| `AWS_S3_ENDPOINT_URL` | No | *(empty)* | Custom S3 endpoint (for MinIO, Cloudflare R2, Backblaze B2) |
-| `AWS_S3_CUSTOM_DOMAIN` | No | *(empty)* | Custom domain for media URLs (e.g., a CDN domain) |
-| `SECURE_SSL_REDIRECT` | No | `false` | Set to `true` to redirect HTTP to HTTPS |
-| `CSRF_TRUSTED_ORIGINS` | No | *(empty)* | Comma-separated trusted origins for CSRF (e.g., `https://yourdomain.com`) |
-| `TEST_USER_PASSWORD` | No | *(empty)* | If set, creates `test1`/`test2` users and a "Test Server" on startup |
-| `ADMIN_USER_PASSWORD` | No | *(empty)* | If set, creates an `admin` user with `is_staff=True` on startup |
+| `AWS_S3_ENDPOINT_URL` | No | *(empty)* | Custom S3 endpoint (MinIO, R2, B2) |
+| `AWS_S3_CUSTOM_DOMAIN` | No | *(empty)* | CDN domain for media URLs |
+| `SECURE_SSL_REDIRECT` | No | `false` | Redirect HTTP → HTTPS |
+| `CSRF_TRUSTED_ORIGINS` | No | *(empty)* | Comma-separated trusted origins |
+| `TURN_HOST` | No | *(empty)* | TURN server hostname |
+| `TURN_SECRET` | No | *(empty)* | coturn HMAC secret |
+| `TURN_TTL` | No | `3600` | TURN credential TTL in seconds |
+| `TEST_USER_PASSWORD` | No | *(empty)* | Seed `test1`/`test2` users on startup |
+| `ADMIN_USER_PASSWORD` | No | *(empty)* | Seed `admin` (staff) user on startup |
 
 ### All-in-One (`config.settings.allinone`)
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
-| `SECRET_KEY` | No | Auto-generated | Django secret key |
-| `ALLOWED_HOSTS` | No | `localhost` | Comma-separated allowed hostnames |
+| `SECRET_KEY` | No | Auto-generated | Persisted to `mediafiles/.secret_key` |
 | `DB_NAME` | No | `videocall` | Bundled PostgreSQL database name |
 | `DB_USER` | No | `videocall` | Bundled PostgreSQL user |
 | `DB_PASSWORD` | No | `videocall` | Bundled PostgreSQL password |
 | `SECURE_SSL_REDIRECT` | No | `false` | HTTP-to-HTTPS redirect |
+| `TURN_HOST` | No | *(empty)* | TURN server hostname |
+| `TURN_SECRET` | No | *(empty)* | coturn HMAC secret |
 | `TEST_USER_PASSWORD` | No | *(empty)* | Seed test users on startup |
 
 ## URL Reference
 
 ### Pages
 
-| URL | Method | Description | Auth Required |
-|-----|--------|-------------|---------------|
-| `/` | GET | Server list (homepage); public servers visible to all | Yes |
-| `/servers/create/` | GET, POST | Create a new server | Yes |
-| `/servers/join/?code=XXXXXXXX` | GET | Join a server via invite code | Yes |
-| `/servers/<uuid>/` | GET | Server detail page with room list and chat | Yes (member) |
-| `/servers/<uuid>/settings/` | GET, POST | Server settings (owner only) | Yes (owner) |
-| `/servers/<uuid>/leave/` | POST | Leave a server | Yes (member) |
-| `/servers/<uuid>/delete/` | POST | Delete a server | Yes (owner) |
-| `/servers/<uuid>/rooms/create/` | GET, POST | Create a room within a server | Yes (member) |
-| `/servers/<uuid>/rooms/<uuid>/` | GET | Room detail -- video call interface | Yes (member) |
-| `/servers/<uuid>/rooms/<uuid>/leave/` | POST | Leave a room | Yes |
-| `/servers/<uuid>/rooms/<uuid>/delete/` | POST | Delete a room | Yes (host) |
-| `/accounts/register/` | GET, POST | User registration | No |
-| `/accounts/login/` | GET, POST | User login | No |
-| `/accounts/logout/` | POST | User logout | Yes |
-| `/accounts/profile/` | GET | View own profile | Yes |
-| `/accounts/settings/` | GET, POST | Edit profile (avatar, bio, device preview) | Yes |
-| `/devices/` | GET | List registered devices | Yes |
-| `/devices/register/` | POST | Register browser media devices (JSON) | Yes |
-| `/devices/<pk>/set-default/` | POST | Set a device as default | Yes |
-| `/admin-panel/` | GET | Admin panel | Yes (staff) |
-| `/admin/` | GET | Django admin interface | Yes (staff) |
+| URL | Description | Auth |
+|-----|-------------|------|
+| `/` | Landing page; redirects to server list if authenticated | No |
+| `/servers/` | Server list | Yes |
+| `/servers/create/` | Create a server | Yes |
+| `/servers/join/?code=XXXXXXXX` | Join via invite code | Yes |
+| `/servers/<uuid>/` | Server detail — rooms + chat | Yes (member) |
+| `/servers/<uuid>/settings/` | Server settings | Yes (owner) |
+| `/servers/<uuid>/leave/` | Leave a server | Yes (member) |
+| `/servers/<uuid>/delete/` | Delete a server | Yes (owner) |
+| `/servers/<uuid>/rooms/create/` | Create a room | Yes (member) |
+| `/servers/<uuid>/rooms/<uuid>/` | Room — video call interface | Yes (member) |
+| `/servers/<uuid>/rooms/<uuid>/leave/` | Leave a room | Yes |
+| `/servers/<uuid>/rooms/<uuid>/delete/` | Delete a room | Yes (host) |
+| `/accounts/register/` | Registration (rate-limited 5/min) | No |
+| `/accounts/login/` | Login (rate-limited 5/min) | No |
+| `/accounts/logout/` | Logout | Yes |
+| `/accounts/profile/` | View own profile | Yes |
+| `/accounts/settings/` | Edit profile, avatar, device preview | Yes |
+| `/admin-panel/` | Admin panel | Yes (staff) |
+| `/admin/` | Django admin | Yes (staff) |
+| `/healthz/` | Health check (DB + Redis ping) | No |
 
 ### API Endpoints
 
-| URL | Method | Payload | Description |
-|-----|--------|---------|-------------|
-| `/devices/register/` | POST | `{"devices": [{"deviceId": "...", "label": "...", "kind": "videoinput"}]}` | Register browser media devices |
-| `/servers/<uuid>/chat/upload/` | POST | Multipart form with `image` file | Upload an image to server chat |
-| `/servers/<uuid>/settings/kick/` | POST | `{"user_id": <int>}` | Kick a member from the server (owner only) |
-| `/servers/<uuid>/settings/regenerate-invite/` | POST | -- | Regenerate the server invite code (owner only) |
+| URL | Method | Description |
+|-----|--------|-------------|
+| `/api/ice-servers/` | GET | ICE server config with TURN credentials (when `TURN_ENABLED`) |
+| `/devices/register/` | POST | Register browser media devices |
+| `/servers/<uuid>/chat/upload/` | POST | Upload image to server chat (rate-limited 10/min) |
+| `/servers/<uuid>/settings/kick/` | POST | Kick a member (owner only) |
+| `/servers/<uuid>/settings/regenerate-invite/` | POST | Regenerate invite code (owner only) |
 
 ## WebSocket Endpoints
 
@@ -352,50 +335,57 @@ ADMIN_USER_PASSWORD=AdminPass456.
 
 Handles WebRTC signaling for video rooms.
 
-**Messages sent by server:**
+**Sent by server:**
 
 | Type | Fields | Description |
 |------|--------|-------------|
-| `my_channel` | `channel` | Sent on connect; the client's own channel name used as a target for signaling |
-| `user_joined` | `username`, `channel`, `seq` | A user joined the room |
-| `user_left` | `username`, `channel`, `seq` | A user left the room |
-| `offer` | `payload`, `sender`, `username` | SDP offer forwarded from another peer |
-| `answer` | `payload`, `sender`, `username` | SDP answer forwarded from another peer |
-| `ice-candidate` | `payload`, `sender`, `username` | ICE candidate forwarded from another peer |
-| `media_state` | `channel`, `mic`, `cam` | A peer's mic/camera on/off state changed |
-| `kicked` | -- | You have been kicked by the host |
-| `force_mute` | -- | The host force-muted your microphone |
-| `room_closed` | -- | The room has been closed |
+| `my_channel` | `channel`, `avatar_url`, `seq` | Client's own channel name on connect |
+| `user_joined` | `username`, `channel`, `seq`, `avatar_url` | A user joined |
+| `user_left` | `username`, `channel`, `seq` | A user left |
+| `offer` / `answer` / `ice-candidate` | `payload`, `sender`, `username`, `avatar_url`, `seq` | Signaling forwarded from a peer |
+| `media_state` | `channel`, `mic`, `cam` | Peer mic/camera state changed |
+| `kicked` | — | You were kicked by the host |
+| `force_mute` | — | Host force-muted your mic |
+| `room_closed` | — | Room was closed |
 
-**Messages sent by client:**
+**Sent by client:**
 
 | Type | Fields | Description |
 |------|--------|-------------|
-| `offer` | `target`, `payload` | Send SDP offer to a specific peer channel |
-| `answer` | `target`, `payload` | Send SDP answer to a specific peer channel |
-| `ice-candidate` | `target`, `payload` | Send ICE candidate to a specific peer channel |
-| `device_update` | `cameraId`, `microphoneId` | Update selected device IDs for this participant |
-| `media_state` | `mic`, `cam` | Broadcast mic/camera on/off state |
+| `offer` / `answer` / `ice-candidate` | `target`, `payload` | Forward signaling to a specific peer |
+| `device_update` | `cameraId`, `microphoneId` | Update selected devices |
+| `media_state` | `mic`, `cam` | Broadcast mic/camera toggle |
 | `kick` | `target_channel`, `username` | Kick a participant (host only) |
 | `mute_user` | `target_channel` | Force-mute a participant (host only) |
 
-### Chat Consumer: `ws://<host>/ws/chat/<server-slug>/`
+### Server Chat Consumer: `ws://<host>/ws/chat/<server-slug>/`
 
-Handles real-time text chat per server.
-
-**Messages sent by server:**
+**Sent by server:**
 
 | Type | Fields | Description |
 |------|--------|-------------|
-| `history` | `messages` (array) | Sent on connect; last 50 messages with `id`, `username`, `avatar_url`, `content`, `image_url`, `created_at` |
-| `chat_message` | `id`, `username`, `avatar_url`, `content`, `image_url`, `created_at` | A new chat message |
+| `history` | `messages[]`, `has_more`, `online_users[]` | Last 50 messages + online user list on connect |
+| `history_page` | `messages[]`, `has_more` | Older messages in response to `load_history` |
+| `chat_message` | `id`, `username`, `avatar_url`, `content`, `image_url`, `created_at` | New message |
+| `message_edited` | `id`, `content`, `updated_at` | A message was edited |
+| `message_deleted` | `id` | A message was soft-deleted |
+| `user_typing` | `username` | A user is typing |
+| `presence` | `username`, `status` (`online`/`offline`) | Presence change |
 
-**Messages sent by client:**
+**Sent by client:**
 
 | Type | Fields | Description |
 |------|--------|-------------|
-| `chat_message` | `content` | Send a text message (max 2000 characters) |
-| `chat_image` | `message_id` | Notify the group about an uploaded image (upload via `/servers/<uuid>/chat/upload/` first) |
+| `chat_message` | `content` | Send a text message |
+| `chat_image` | `message_id` | Broadcast an uploaded image (upload via HTTP first) |
+| `edit_message` | `message_id`, `content` | Edit own message (within 15-min window) |
+| `delete_message` | `message_id` | Soft-delete own message |
+| `typing` | — | Notify others you are typing (debounced) |
+| `load_history` | `before_id` | Request 50 messages older than `before_id` |
+
+### Room Chat Consumer: `ws://<host>/ws/room-chat/<room-slug>/`
+
+Same message types as Server Chat Consumer except no `chat_image`, no `presence`.
 
 ## Project Structure
 
@@ -405,98 +395,97 @@ chat-hub/
 │   ├── accounts/            # Custom User model, auth views, forms
 │   ├── devices/             # Device model, registration endpoint
 │   └── rooms/               # Servers, rooms, chat, WebSocket consumers
-│       ├── consumers.py     # RoomConsumer + ServerChatConsumer
-│       ├── models.py        # Server, ServerMember, Room, RoomParticipant, ChatMessage
+│       ├── consumers.py     # RoomConsumer, ServerChatConsumer, RoomChatConsumer
+│       ├── models.py        # Server, Room, ChatMessage, RoomChatMessage, …
 │       ├── routing.py       # WebSocket URL patterns
-│       ├── views.py         # All server/room/admin views
-│       └── management/
-│           └── commands/
-│               └── cleanup_empty_rooms.py
+│       ├── views.py         # All server/room/admin/landing views
+│       └── management/commands/cleanup_empty_rooms.py
 ├── config/
 │   ├── asgi.py              # ASGI entrypoint (HTTP + WebSocket routing)
-│   ├── urls.py              # Root URL configuration
+│   ├── urls.py              # Root URL config (healthz, ice-servers, static in dev)
 │   └── settings/
-│       ├── base.py          # Shared settings
+│       ├── base.py          # Shared settings + Redis cache config
 │       ├── development.py   # SQLite, DEBUG=True
 │       ├── production.py    # External PostgreSQL + S3 + security headers
-│       └── allinone.py      # Bundled PostgreSQL + Redis
+│       └── allinone.py      # Bundled PostgreSQL + Redis + WhiteNoise + TLS
+├── utils/
+│   ├── ratelimit.py         # @ratelimit decorator + is_rate_limited() helper
+│   └── turn.py              # HMAC credential generator for coturn
 ├── static/
 │   ├── css/main.css         # Dark theme styles
-│   └── js/webrtc.js         # WebRTC + WebSocket client logic
+│   └── js/webrtc.js         # WebRTC + signaling client logic
 ├── templates/
-│   ├── base.html            # Base template (Bootstrap 5)
+│   ├── base.html            # Bootstrap 5 base (toasts, messages, nav)
+│   ├── landing.html         # Public landing page
 │   ├── accounts/            # Login, register, profile, settings
 │   ├── devices/             # Device list
-│   └── rooms/               # Server list/detail, room list/detail/create, admin panel
+│   └── rooms/               # Server list/detail, room detail, admin panel
+├── docs/
+│   └── ROADMAP.md           # Prioritised feature roadmap
 ├── allinone/
-│   ├── Dockerfile           # All-in-one image (bundles PostgreSQL 16 + Redis)
+│   ├── Dockerfile           # All-in-one image (PostgreSQL 16 + Redis bundled)
 │   ├── docker-compose.yml   # Compose for all-in-one
-│   └── entrypoint.sh        # Starts PostgreSQL, Redis, then Daphne
+│   └── entrypoint.sh        # Starts PG, Redis, migrates, generates TLS cert, starts Daphne
 ├── Dockerfile               # Production image (external services)
 ├── docker-compose.yml       # Compose for production
-├── entrypoint.sh            # Production entrypoint (migrations, seed data, Daphne)
+├── entrypoint.sh            # Production entrypoint
 ├── deploy.sh                # Local development setup script
-├── requirements.txt         # Python dependencies
+├── requirements.txt         # Python dependencies (12 packages)
 └── manage.py
 ```
 
 ## Management Commands
 
 ```bash
-# Clean up rooms that have been empty for 15+ minutes
-python manage.py cleanup_empty_rooms
+# Clean up rooms empty for 15+ minutes
+python manage.py cleanup_empty_rooms --settings=config.settings.development
 
 # Run the full test suite
-python manage.py test
+python manage.py test --settings=config.settings.development --keepdb
 
 # Create a superuser
-python manage.py createsuperuser
+python manage.py createsuperuser --settings=config.settings.development
 ```
 
 ## Troubleshooting
 
 **Redis connection refused**
 
-The application requires Redis for WebSocket channel layers. Ensure Redis is running on `localhost:6379`:
+The application requires Redis for WebSocket channel layers and rate limiting. Ensure it's running:
 
 ```bash
-redis-cli ping
-# Expected: PONG
+redis-cli ping  # Expected: PONG
 ```
-
-If Redis is not installed, `deploy.sh` will attempt to install it automatically on Debian/Ubuntu, macOS (Homebrew), Fedora, and Arch Linux.
 
 **WebSocket connections fail on `runserver`**
 
-Django's built-in `runserver` does not support WebSockets. Use Daphne instead:
+Django's built-in `runserver` does not support WebSockets. Use Daphne:
 
 ```bash
-daphne -b 0.0.0.0 -p 8000 config.asgi:application
+DJANGO_SETTINGS_MODULE=config.settings.development daphne -b 0.0.0.0 -p 8000 config.asgi:application
 ```
 
-The `deploy.sh` script uses `runserver` for convenience. For full WebSocket functionality locally, run Daphne directly.
+**Static files return HTML (MIME mismatch) over HTTPS**
+
+In development, static files are served via `staticfiles_urlpatterns()` (added in `config/urls.py` when `DEBUG=True`). In production/allinone, WhiteNoise middleware serves hashed filenames from `STATIC_ROOT`. Do not re-add `ASGIStaticFilesHandler` to `asgi.py` — it cannot serve hashed filenames and intercepts requests before WhiteNoise can handle them.
 
 **WebRTC calls fail (no video/audio)**
 
-- Ensure you are accessing the site over HTTPS or `localhost`. Browsers block `getUserMedia()` on insecure origins.
-- Check that the STUN server (`stun:stun.l.google.com:19302`) is reachable. Restrictive firewalls may block STUN/TURN traffic on UDP.
-- If peers are behind symmetric NATs, a TURN server may be required (not bundled with this project).
-
-**Static files not loading in production**
-
-Ensure `collectstatic` has been run. The Docker images run this at build time. If deploying manually:
-
-```bash
-DJANGO_SETTINGS_MODULE=config.settings.production python manage.py collectstatic --noinput
-```
-
-**Media uploads fail in production**
-
-Verify that all `AWS_*` environment variables are set correctly and that the S3 bucket has appropriate permissions. In all-in-one mode, media is stored locally in `/app/mediafiles/` and served by Django directly.
+- Access the site over HTTPS or `localhost`. Browsers block `getUserMedia()` on insecure origins.
+- Check that STUN (`stun:stun.l.google.com:19302`) is reachable.
+- If peers are behind strict NAT, configure a TURN server (`TURN_HOST` + `TURN_SECRET`).
 
 **CSRF errors behind a reverse proxy**
 
-Set `CSRF_TRUSTED_ORIGINS` to your domain (e.g., `https://yourdomain.com`). The production settings also automatically build CSRF trusted origins from `ALLOWED_HOSTS`.
+Set `CSRF_TRUSTED_ORIGINS` to your domain (e.g., `https://yourdomain.com`).
+
+**Self-signed certificate warning (allinone)**
+
+The allinone container generates a self-signed TLS certificate on first run. Browsers will display a security warning — click "Advanced → Proceed" for local use. The cert is stored in `mediafiles/ssl/` and reused on subsequent restarts.
+
+**Media uploads fail in production**
+
+Verify all `AWS_*` environment variables are set correctly and the S3 bucket has write permissions. In allinone mode, media is stored in `/app/mediafiles/` inside the container (persisted via the `media_files` volume).
 
 ## License
 

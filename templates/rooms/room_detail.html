@@ -144,6 +144,9 @@
     const chatForm = document.getElementById('roomChatForm');
     const chatInput = document.getElementById('roomChatInput');
     let socket = null;
+    let oldestId = null;
+    let hasMore = false;
+    let loadingHistory = false;
 
     function escapeHtml(text) {
         const d = document.createElement('div');
@@ -202,7 +205,7 @@
         return `<div class="chat-msg-content">${escapeHtml(msg.content)}${msg.updated_at ? ' <small style="color:var(--text-muted)">(edited)</small>' : ''}</div>`;
     }
 
-    function appendMessage(msg) {
+    function buildMessageEl(msg) {
         const isOwn = msg.username === USERNAME;
         const isDeleted = !!msg.deleted_at;
         const el = document.createElement('div');
@@ -250,7 +253,21 @@
                 }
             });
         }
+        return el;
+    }
 
+    function prependMessages(msgs) {
+        if (!msgs.length) return;
+        const prevHeight = messagesDiv.scrollHeight;
+        msgs.forEach(msg => {
+            messagesDiv.insertBefore(buildMessageEl(msg), messagesDiv.firstChild);
+        });
+        messagesDiv.scrollTop += messagesDiv.scrollHeight - prevHeight;
+        if (msgs[0]) oldestId = msgs[0].id;
+    }
+
+    function appendMessage(msg) {
+        const el = buildMessageEl(msg);
         messagesDiv.appendChild(el);
         messagesDiv.scrollTop = messagesDiv.scrollHeight;
     }
@@ -341,8 +358,14 @@
             if (data.type === 'history') {
                 messagesDiv.innerHTML = '';
                 data.messages.forEach(appendMessage);
+                hasMore = !!data.has_more;
+                oldestId = data.messages.length ? data.messages[0].id : null;
             } else if (data.type === 'chat_message') {
                 appendMessage(data);
+            } else if (data.type === 'history_page') {
+                loadingHistory = false;
+                hasMore = !!data.has_more;
+                prependMessages(data.messages);
             } else if (data.type === 'message_edited') {
                 handleMessageEdited(data);
             } else if (data.type === 'message_deleted') {
@@ -356,6 +379,13 @@
             setTimeout(connect, 3000);
         };
     }
+
+    messagesDiv.addEventListener('scroll', function() {
+        if (messagesDiv.scrollTop < 80 && hasMore && !loadingHistory && socket && socket.readyState === WebSocket.OPEN) {
+            loadingHistory = true;
+            socket.send(JSON.stringify({ type: 'load_history', before_id: oldestId }));
+        }
+    });
 
     chatInput.addEventListener('keydown', sendTyping);
 

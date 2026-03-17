@@ -63,10 +63,12 @@ class ServerChatConsumer(AsyncWebsocketConsumer):
 
         # Send history with current online users list
         history = await self.get_history()
+        has_more = len(history) == 50
         await self.send(text_data=json.dumps({
             'type': 'history',
             'messages': history,
             'online_users': online_users,
+            'has_more': has_more,
         }))
 
     async def disconnect(self, code):
@@ -152,6 +154,17 @@ class ServerChatConsumer(AsyncWebsocketConsumer):
                     'type': 'message_deleted',
                     'id': message_id,
                 })
+
+        elif msg_type == 'load_history':
+            before_id = data.get('before_id')
+            if not before_id:
+                return
+            page = await self.get_history_page(before_id)
+            await self.send(text_data=json.dumps({
+                'type': 'history_page',
+                'messages': page['messages'],
+                'has_more': page['has_more'],
+            }))
 
     async def chat_message(self, event):
         await self.send(text_data=json.dumps({
@@ -300,6 +313,28 @@ class ServerChatConsumer(AsyncWebsocketConsumer):
         msg.deleted_at = timezone.now()
         msg.save(update_fields=['deleted_at'])
         return True
+
+    @database_sync_to_async
+    def get_history_page(self, before_id):
+        msgs = ChatMessage.objects.filter(
+            server__slug=self.server_slug,
+            id__lt=before_id,
+        ).select_related('user').order_by('-created_at')[:50]
+        msgs_list = list(msgs)
+        result = []
+        for m in reversed(msgs_list):
+            deleted = m.deleted_at is not None
+            result.append({
+                'id': m.id,
+                'username': m.user.username,
+                'avatar_url': self._avatar_url(m.user),
+                'content': m.content if not deleted else '',
+                'image_url': (m.image.url if m.image else '') if not deleted else '',
+                'created_at': m.created_at.isoformat(),
+                'updated_at': m.updated_at.isoformat() if m.updated_at else None,
+                'deleted_at': m.deleted_at.isoformat() if m.deleted_at else None,
+            })
+        return {'messages': result, 'has_more': len(msgs_list) == 50}
 
 
 class RoomConsumer(AsyncWebsocketConsumer):
@@ -512,6 +547,7 @@ class RoomChatConsumer(AsyncWebsocketConsumer):
         await self.send(text_data=json.dumps({
             'type': 'history',
             'messages': history,
+            'has_more': len(history) == 50,
         }))
 
     async def disconnect(self, code):
@@ -572,6 +608,17 @@ class RoomChatConsumer(AsyncWebsocketConsumer):
                     'type': 'message_deleted',
                     'id': message_id,
                 })
+
+        elif msg_type == 'load_history':
+            before_id = data.get('before_id')
+            if not before_id:
+                return
+            page = await self.get_history_page(before_id)
+            await self.send(text_data=json.dumps({
+                'type': 'history_page',
+                'messages': page['messages'],
+                'has_more': page['has_more'],
+            }))
 
     async def chat_message(self, event):
         await self.send(text_data=json.dumps({
@@ -692,3 +739,24 @@ class RoomChatConsumer(AsyncWebsocketConsumer):
         msg.deleted_at = timezone.now()
         msg.save(update_fields=['deleted_at'])
         return True
+
+    @database_sync_to_async
+    def get_history_page(self, before_id):
+        msgs = RoomChatMessage.objects.filter(
+            room__slug=self.room_slug,
+            id__lt=before_id,
+        ).select_related('user').order_by('-created_at')[:50]
+        msgs_list = list(msgs)
+        result = []
+        for m in reversed(msgs_list):
+            deleted = m.deleted_at is not None
+            result.append({
+                'id': m.id,
+                'username': m.user.username,
+                'avatar_url': self._avatar_url(m.user),
+                'content': m.content if not deleted else '',
+                'created_at': m.created_at.isoformat(),
+                'updated_at': m.updated_at.isoformat() if m.updated_at else None,
+                'deleted_at': m.deleted_at.isoformat() if m.deleted_at else None,
+            })
+        return {'messages': result, 'has_more': len(msgs_list) == 50}
