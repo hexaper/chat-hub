@@ -20,8 +20,8 @@ def create_test_image(format='PNG'):
 
 class RoomViewTests(TestCase):
     def setUp(self):
-        self.user = User.objects.create_user(username='testuser', password='Tester123.')
-        self.other_user = User.objects.create_user(username='other', password='Tester123.')
+        self.user = User.objects.create_user(username='testuser', email='testuser@example.com', password='Tester123.')
+        self.other_user = User.objects.create_user(username='other', email='other@example.com', password='Tester123.')
         self.server = Server.objects.create(name='Server', owner=self.other_user)
         ServerMember.objects.create(server=self.server, user=self.other_user)
         self.room = Room.objects.create(name='Room', server=self.server, host=self.other_user)
@@ -94,15 +94,78 @@ class RoomViewTests(TestCase):
         self.assertEqual(response.status_code, 302)
 
     def test_chat_image_upload_requires_member(self):
-        self.client.login(username='testuser', password='Tester123.')
+        upload_user = User.objects.create_user(username='uploaduser_nm', email='uploaduser_nm@example.com', password='Tester123.')
+        self.client.login(username='uploaduser_nm', password='Tester123.')
         image = SimpleUploadedFile('test.png', create_test_image().read(), content_type='image/png')
         response = self.client.post(reverse('chat_image_upload', args=[self.server.slug]), {'image': image})
         self.assertEqual(response.status_code, 403)
 
     def test_chat_image_upload_success(self):
-        self.server.members.add(self.user)
-        self.client.login(username='testuser', password='Tester123.')
+        upload_user = User.objects.create_user(username='uploaduser_ok', email='uploaduser_ok@example.com', password='Tester123.')
+        ServerMember.objects.create(server=self.server, user=upload_user)
+        self.client.login(username='uploaduser_ok', password='Tester123.')
         image = SimpleUploadedFile('test.png', create_test_image().read(), content_type='image/png')
         response = self.client.post(reverse('chat_image_upload', args=[self.server.slug]), {'image': image})
         self.assertEqual(response.status_code, 200)
         self.assertIn('image_url', response.json())
+
+    # ── Video upload tests ────────────────────────────────────────────────────
+
+    def test_video_upload_success(self):
+        """Video within 25 MB is accepted; response includes message_id and media_type."""
+        # Use a fresh user to avoid hitting the rate limit when running the full test class
+        video_user = User.objects.create_user(username='videouser', email='videouser@example.com', password='Tester123.')
+        ServerMember.objects.create(server=self.server, user=video_user)
+        self.client.login(username='videouser', password='Tester123.')
+        video = SimpleUploadedFile('clip.mp4', b'\x00' * 1024, content_type='video/mp4')
+        response = self.client.post(
+            reverse('chat_image_upload', args=[self.server.slug]),
+            {'video': video},
+            HTTP_ACCEPT='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data['media_type'], 'video')
+        self.assertIn('message_id', data)
+
+    def test_video_upload_too_large_rejected(self):
+        """Video exceeding 25 MB returns 400 with error=file_too_large."""
+        video_user2 = User.objects.create_user(username='videouser2', email='videouser2@example.com', password='Tester123.')
+        ServerMember.objects.create(server=self.server, user=video_user2)
+        self.client.login(username='videouser2', password='Tester123.')
+        big = SimpleUploadedFile('big.mp4', b'\x00' * (26 * 1024 * 1024), content_type='video/mp4')
+        response = self.client.post(
+            reverse('chat_image_upload', args=[self.server.slug]),
+            {'video': big},
+            HTTP_ACCEPT='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], 'file_too_large')
+
+    def test_unsupported_mime_type_rejected(self):
+        """A non-image, non-video file returns 400 with error=unsupported_file_type."""
+        video_user3 = User.objects.create_user(username='videouser3', email='videouser3@example.com', password='Tester123.')
+        ServerMember.objects.create(server=self.server, user=video_user3)
+        self.client.login(username='videouser3', password='Tester123.')
+        bad = SimpleUploadedFile('script.exe', b'\x00' * 512, content_type='application/octet-stream')
+        response = self.client.post(
+            reverse('chat_image_upload', args=[self.server.slug]),
+            {'video': bad},
+            HTTP_ACCEPT='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], 'unsupported_file_type')
+
+    def test_image_upload_still_returns_media_type(self):
+        """Existing image upload now also returns media_type='image'."""
+        img_user = User.objects.create_user(username='imguser_mt', email='imguser_mt@example.com', password='Tester123.')
+        ServerMember.objects.create(server=self.server, user=img_user)
+        self.client.login(username='imguser_mt', password='Tester123.')
+        image = SimpleUploadedFile('pic.png', create_test_image().read(), content_type='image/png')
+        response = self.client.post(
+            reverse('chat_image_upload', args=[self.server.slug]),
+            {'image': image},
+            HTTP_ACCEPT='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['media_type'], 'image')

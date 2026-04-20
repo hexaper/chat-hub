@@ -296,7 +296,9 @@ def room_delete(request, server_slug, slug):
     return redirect('room_detail', server_slug=server.slug, slug=slug)
 
 
-# ── Chat image upload ────────────────────────────────────────────────────────
+# ── Chat media upload ─────────────────────────────────────────────────────────
+
+_ALLOWED_VIDEO_TYPES = {'video/mp4', 'video/webm', 'video/ogg'}
 
 @login_required
 @require_post_method
@@ -307,32 +309,31 @@ def chat_image_upload(request, server_slug):
         return JsonResponse({'error': 'Not a member'}, status=403)
 
     image = request.FILES.get('image')
-    if not image:
-        return JsonResponse({'error': 'No image provided'}, status=400)
+    video = request.FILES.get('video')
 
-    if image.size > 5 * 1024 * 1024:
-        return JsonResponse({'error': 'Image too large (max 5MB)'}, status=400)
+    if image:
+        if image.size > 5 * 1024 * 1024:
+            return JsonResponse({'error': 'Image too large (max 5MB)'}, status=400)
+        try:
+            img = Image.open(image)
+            img.verify()
+            image.seek(0)
+        except Exception:
+            return JsonResponse({'error': 'Invalid image file'}, status=400)
+        if img.format not in ('JPEG', 'PNG', 'GIF', 'WEBP'):
+            return JsonResponse({'error': 'Invalid image type'}, status=400)
+        msg = ChatMessage.objects.create(server=server, user=request.user, image=image)
+        return JsonResponse({'message_id': msg.id, 'media_type': 'image', 'image_url': msg.image.url})
 
-    # Validate actual image content (not just Content-Type header)
-    try:
-        img = Image.open(image)
-        img.verify()
-        image.seek(0)
-    except Exception:
-        return JsonResponse({'error': 'Invalid image file'}, status=400)
+    elif video:
+        if video.content_type not in _ALLOWED_VIDEO_TYPES:
+            return JsonResponse({'error': 'unsupported_file_type'}, status=400)
+        if video.size > 25 * 1024 * 1024:
+            return JsonResponse({'error': 'file_too_large'}, status=400)
+        msg = ChatMessage.objects.create(server=server, user=request.user, video=video)
+        return JsonResponse({'message_id': msg.id, 'media_type': 'video', 'video_url': msg.video.url})
 
-    if img.format not in ('JPEG', 'PNG', 'GIF', 'WEBP'):
-        return JsonResponse({'error': 'Invalid image type'}, status=400)
-
-    msg = ChatMessage.objects.create(
-        server=server,
-        user=request.user,
-        image=image,
-    )
-    return JsonResponse({
-        'image_url': msg.image.url,
-        'message_id': msg.id,
-    })
+    return JsonResponse({'error': 'No file provided'}, status=400)
 
 
 # ── Admin panel views ────────────────────────────────────────────────────────
