@@ -20,8 +20,8 @@ class ConsumerTests(TransactionTestCase):
     """Tests for WebSocket consumers."""
 
     def setUp(self):
-        self.user = User.objects.create_user(username='user1', password='Tester123.')
-        self.other = User.objects.create_user(username='user2', password='Tester123.')
+        self.user = User.objects.create_user(username='user1', password='Tester123.', email='user1@example.com')
+        self.other = User.objects.create_user(username='user2', password='Tester123.', email='user2@example.com')
         self.server = Server.objects.create(name='Server', owner=self.other)
         ServerMember.objects.create(server=self.server, user=self.other)
 
@@ -789,13 +789,40 @@ class ConsumerTests(TransactionTestCase):
 
         asyncio.run(run())
 
+    def test_history_includes_video_url_field(self):
+        """Each message in history payload must have a video_url key."""
+        ServerMember.objects.get_or_create(server=self.server, user=self.user)
+        ChatMessage.objects.create(server=self.server, user=self.user, content='hello')
+        from django.db import transaction
+        transaction.commit()
+
+        headers = self._get_cookie_header(self.user)
+        communicator = WebsocketCommunicator(
+            self.application,
+            f'/ws/chat/{self.server.slug}/',
+            headers=headers,
+        )
+
+        async def run():
+            connected, _ = await communicator.connect()
+            assert connected, 'Connection rejected'
+            response = await communicator.receive_json_from()
+            await communicator.disconnect()
+            return response
+
+        response = asyncio.run(run())
+        self.assertEqual(response['type'], 'history')
+        self.assertGreater(len(response['messages']), 0)
+        for msg in response['messages']:
+            self.assertIn('video_url', msg)
+
 
 class RoomConsumerTests(TransactionTestCase):
     """Tests for RoomConsumer WebRTC signaling."""
 
     def setUp(self):
-        self.host = User.objects.create_user(username='host', password='Tester123.')
-        self.peer = User.objects.create_user(username='peer', password='Tester123.')
+        self.host = User.objects.create_user(username='host', password='Tester123.', email='host@example.com')
+        self.peer = User.objects.create_user(username='peer', password='Tester123.', email='peer@example.com')
         self.server = Server.objects.create(name='TestServer', owner=self.host)
         ServerMember.objects.create(server=self.server, user=self.host)
         ServerMember.objects.create(server=self.server, user=self.peer)
@@ -1273,8 +1300,8 @@ class RoomChatConsumerTests(TransactionTestCase):
     """
 
     def setUp(self):
-        self.author = User.objects.create_user(username='rc_author', password='Tester123.')
-        self.other = User.objects.create_user(username='rc_other', password='Tester123.')
+        self.author = User.objects.create_user(username='rc_author', password='Tester123.', email='rc_author@example.com')
+        self.other = User.objects.create_user(username='rc_other', password='Tester123.', email='rc_other@example.com')
         self.server = Server.objects.create(name='RCServer', owner=self.author)
         ServerMember.objects.create(server=self.server, user=self.author)
         ServerMember.objects.create(server=self.server, user=self.other)

@@ -105,6 +105,7 @@ class ServerChatConsumer(AsyncWebsocketConsumer):
                 'avatar_url': msg['avatar_url'],
                 'content': msg['content'],
                 'image_url': '',
+                'video_url': '',
                 'created_at': msg['created_at'],
             })
 
@@ -121,6 +122,7 @@ class ServerChatConsumer(AsyncWebsocketConsumer):
                     'avatar_url': msg['avatar_url'],
                     'content': msg['content'],
                     'image_url': msg['image_url'],
+                    'video_url': msg['video_url'],
                     'created_at': msg['created_at'],
                 })
 
@@ -174,6 +176,7 @@ class ServerChatConsumer(AsyncWebsocketConsumer):
             'avatar_url': event['avatar_url'],
             'content': event['content'],
             'image_url': event.get('image_url', ''),
+            'video_url': event.get('video_url', ''),
             'created_at': event['created_at'],
         }))
 
@@ -239,6 +242,7 @@ class ServerChatConsumer(AsyncWebsocketConsumer):
                 'avatar_url': self._avatar_url(m.user),
                 'content': m.content if not deleted else '',
                 'image_url': (m.image.url if m.image else '') if not deleted else '',
+                'video_url': (m.video.url if m.video else '') if not deleted else '',
                 'created_at': m.created_at.isoformat(),
                 'updated_at': m.updated_at.isoformat() if m.updated_at else None,
                 'deleted_at': m.deleted_at.isoformat() if m.deleted_at else None,
@@ -259,6 +263,7 @@ class ServerChatConsumer(AsyncWebsocketConsumer):
             'avatar_url': self._avatar_url(msg.user),
             'content': msg.content,
             'image_url': msg.image.url if msg.image else '',
+            'video_url': msg.video.url if msg.video else '',
             'created_at': msg.created_at.isoformat(),
         }
 
@@ -330,6 +335,7 @@ class ServerChatConsumer(AsyncWebsocketConsumer):
                 'avatar_url': self._avatar_url(m.user),
                 'content': m.content if not deleted else '',
                 'image_url': (m.image.url if m.image else '') if not deleted else '',
+                'video_url': (m.video.url if m.video else '') if not deleted else '',
                 'created_at': m.created_at.isoformat(),
                 'updated_at': m.updated_at.isoformat() if m.updated_at else None,
                 'deleted_at': m.deleted_at.isoformat() if m.deleted_at else None,
