@@ -13,6 +13,7 @@ DATABASES = {
         'PASSWORD': os.environ['POSTGRES_PASS'],
         'HOST': os.environ['POSTGRES_HOST'],
         'OPTIONS': {'sslmode': 'require'},
+        'CONN_MAX_AGE': 600,
     }
 }
 
