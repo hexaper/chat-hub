@@ -117,7 +117,9 @@ class RoomViewTests(TestCase):
         video_user = User.objects.create_user(username='videouser', email='videouser@example.com', password='Tester123.')
         ServerMember.objects.create(server=self.server, user=video_user)
         self.client.login(username='videouser', password='Tester123.')
-        video = SimpleUploadedFile('clip.mp4', b'\x00' * 1024, content_type='video/mp4')
+        # Minimal MP4 header: 4-byte size + 'ftyp' + 'mp42' + 4-byte version + 'mp42'
+        mp4_header = b'\x00\x00\x00\x18ftypisom\x00\x00\x00\x00isomiso2'
+        video = SimpleUploadedFile('clip.mp4', mp4_header + b'\x00' * 512, content_type='video/mp4')
         response = self.client.post(
             reverse('chat_image_upload', args=[self.server.slug]),
             {'video': video},
@@ -151,6 +153,20 @@ class RoomViewTests(TestCase):
         response = self.client.post(
             reverse('chat_image_upload', args=[self.server.slug]),
             {'video': bad},
+            HTTP_ACCEPT='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()['error'], 'unsupported_file_type')
+
+    def test_video_mime_spoofing_rejected(self):
+        """A file with spoofed video/mp4 Content-Type but non-video magic bytes is rejected."""
+        ServerMember.objects.create(server=self.server, user=self.user)
+        self.client.login(username='testuser', password='Tester123.')
+        # Fake MP4: has the right MIME type but wrong magic bytes (just null bytes)
+        fake_mp4 = SimpleUploadedFile('fake.mp4', b'\x00' * 512, content_type='video/mp4')
+        response = self.client.post(
+            reverse('chat_image_upload', args=[self.server.slug]),
+            {'video': fake_mp4},
             HTTP_ACCEPT='application/json',
         )
         self.assertEqual(response.status_code, 400)

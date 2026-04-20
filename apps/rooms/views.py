@@ -300,6 +300,22 @@ def room_delete(request, server_slug, slug):
 
 _ALLOWED_VIDEO_TYPES = {'video/mp4', 'video/webm', 'video/ogg'}
 
+
+def _is_valid_video(header: bytes) -> bool:
+    """Check magic bytes to verify the file is actually a supported video format."""
+    if len(header) < 8:
+        return False
+    # WebM: EBML header
+    if header[:4] == b'\x1a\x45\xdf\xa3':
+        return True
+    # OGG container
+    if header[:4] == b'OggS':
+        return True
+    # MP4/ISO Base Media: ftyp box at offset 4 (first 4 bytes are box size, variable)
+    if header[4:8] == b'ftyp':
+        return True
+    return False
+
 @login_required
 @require_post_method
 @ratelimit(key='user', rate='10/m')
@@ -330,6 +346,11 @@ def chat_image_upload(request, server_slug):
             return JsonResponse({'error': 'unsupported_file_type'}, status=400)
         if video.size > 25 * 1024 * 1024:
             return JsonResponse({'error': 'file_too_large'}, status=400)
+        # Validate actual file content via magic bytes (not just Content-Type header)
+        header = video.read(12)
+        video.seek(0)
+        if not _is_valid_video(header):
+            return JsonResponse({'error': 'unsupported_file_type'}, status=400)
         msg = ChatMessage.objects.create(server=server, user=request.user, video=video)
         return JsonResponse({'message_id': msg.id, 'media_type': 'video', 'video_url': msg.video.url})
 
