@@ -14,23 +14,37 @@ EDIT_WINDOW_SECONDS = 15 * 60  # 15 minutes
 # Maps server_slug -> {channel_name: username}
 # asyncio.Lock is safe here: all AsyncWebsocketConsumers share one event loop.
 _presence: dict[str, dict[str, str]] = {}
-_presence_lock = asyncio.Lock()
+# Lock is created lazily, keyed by the event loop it belongs to.
+# This prevents "bound to a different event loop" errors when tests call
+# asyncio.run() multiple times (each call creates a fresh event loop).
+_presence_locks: dict[int, asyncio.Lock] = {}
+
+
+def _get_presence_lock() -> asyncio.Lock:
+    """Return the presence lock for the current event loop, creating it if needed."""
+    loop = asyncio.get_running_loop()
+    loop_id = id(loop)
+    if loop_id not in _presence_locks:
+        _presence_locks[loop_id] = asyncio.Lock()
+        # Schedule cleanup when the loop closes so we don't leak indefinitely.
+        loop.call_soon(lambda: _presence_locks.pop(loop_id, None) if loop.is_closed() else None)
+    return _presence_locks[loop_id]
 
 
 async def _presence_add(server_slug: str, channel_name: str, username: str) -> list[str]:
-    async with _presence_lock:
+    async with _get_presence_lock():
         _presence.setdefault(server_slug, {})[channel_name] = username
         return list(set(_presence[server_slug].values()))
 
 
 async def _presence_remove(server_slug: str, channel_name: str) -> list[str]:
-    async with _presence_lock:
+    async with _get_presence_lock():
         _presence.get(server_slug, {}).pop(channel_name, None)
         return list(set(_presence.get(server_slug, {}).values()))
 
 
 async def _presence_list(server_slug: str) -> list[str]:
-    async with _presence_lock:
+    async with _get_presence_lock():
         return list(set(_presence.get(server_slug, {}).values()))
 
 

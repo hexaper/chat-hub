@@ -30,3 +30,4 @@ comms
 .gitignore
 ssl.key
 ssl.crt
+build.log

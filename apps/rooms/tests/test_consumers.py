@@ -13,6 +13,32 @@ from django.utils import timezone
 from apps.rooms import routing
 from apps.rooms.models import Server, ServerMember, ChatMessage, Room, RoomParticipant, RoomChatMessage
 
+
+async def drain_until(communicator: WebsocketCommunicator, target_type: str, timeout: float = 20) -> dict:
+    """Read messages from a communicator, discarding any with a type in `skip_types`,
+    until a message with `target_type` arrives (or `timeout` is exceeded)."""
+    skip_types = {'presence'}
+    while True:
+        raw = await communicator.receive_from(timeout=timeout)
+        msg = json.loads(raw)
+        if msg.get('type') in skip_types:
+            continue
+        return msg
+
+
+async def safe_disconnect(communicator: WebsocketCommunicator) -> None:
+    """Disconnect a communicator, ignoring CancelledError.
+
+    When receive_from() times out, asgiref cancels the application task.
+    Subsequent disconnect() calls will raise CancelledError because the
+    application future is already done.  This helper swallows that error
+    so tests don't spuriously fail during teardown.
+    """
+    try:
+        await communicator.disconnect()
+    except (asyncio.CancelledError, Exception):
+        pass
+
 User = get_user_model()
 
 
@@ -359,9 +385,10 @@ class ConsumerTests(TransactionTestCase):
         async def run():
             await comm1.connect()
             await comm2.connect()
-            # drain history for both
-            await comm1.receive_from(timeout=20)
-            await comm2.receive_from(timeout=20)
+            # drain history for both; also drain any presence events that arrive
+            # on comm1 when comm2 joins the group
+            await drain_until(comm1, 'history')
+            await drain_until(comm2, 'history')
 
             await comm1.send_json_to({
                 'type': 'edit_message',
@@ -369,8 +396,7 @@ class ConsumerTests(TransactionTestCase):
                 'content': 'edited content',
             })
 
-            raw = await comm1.receive_from(timeout=20)
-            response = json.loads(raw)
+            response = await drain_until(comm1, 'message_edited')
             self.assertEqual(response.get('type'), 'message_edited',
                              msg=f"Expected 'message_edited' from author's socket, got: {response}")
             self.assertEqual(response.get('id'), msg.id,
@@ -381,8 +407,7 @@ class ConsumerTests(TransactionTestCase):
                                  msg="message_edited broadcast must include updated_at")
 
             # The other connected member should also receive the broadcast
-            raw2 = await comm2.receive_from(timeout=20)
-            response2 = json.loads(raw2)
+            response2 = await drain_until(comm2, 'message_edited')
             self.assertEqual(response2.get('type'), 'message_edited',
                              msg=f"Expected 'message_edited' broadcast to second member, got: {response2}")
             self.assertEqual(response2.get('id'), msg.id)
@@ -462,7 +487,7 @@ class ConsumerTests(TransactionTestCase):
             self.assertFalse(received_something,
                              msg="edit_message past the 15-minute window must produce no broadcast")
 
-            await communicator.disconnect()
+            await safe_disconnect(communicator)
 
         asyncio.run(run())
 
@@ -506,7 +531,7 @@ class ConsumerTests(TransactionTestCase):
             self.assertFalse(received_something,
                              msg="edit_message for another user's message must be silently ignored")
 
-            await communicator.disconnect()
+            await safe_disconnect(communicator)
 
         asyncio.run(run())
 
@@ -550,7 +575,7 @@ class ConsumerTests(TransactionTestCase):
             self.assertFalse(received_something,
                              msg="edit_message on a deleted message must be silently ignored")
 
-            await communicator.disconnect()
+            await safe_disconnect(communicator)
 
         asyncio.run(run())
 
@@ -577,20 +602,20 @@ class ConsumerTests(TransactionTestCase):
         async def run():
             await comm1.connect()
             await comm2.connect()
-            await comm1.receive_from(timeout=20)  # drain history
-            await comm2.receive_from(timeout=20)  # drain history
+            # drain history; also discard any presence events that arrive on
+            # comm1 when comm2 connects to the group
+            await drain_until(comm1, 'history')
+            await drain_until(comm2, 'history')
 
             await comm1.send_json_to({'type': 'delete_message', 'message_id': msg.id})
 
-            raw1 = await comm1.receive_from(timeout=20)
-            response1 = json.loads(raw1)
+            response1 = await drain_until(comm1, 'message_deleted')
             self.assertEqual(response1.get('type'), 'message_deleted',
                              msg=f"Expected 'message_deleted' from author's socket, got: {response1}")
             self.assertEqual(response1.get('id'), msg.id,
                              msg=f"Expected message id={msg.id} in broadcast, got: {response1.get('id')}")
 
-            raw2 = await comm2.receive_from(timeout=20)
-            response2 = json.loads(raw2)
+            response2 = await drain_until(comm2, 'message_deleted')
             self.assertEqual(response2.get('type'), 'message_deleted',
                              msg=f"Expected 'message_deleted' broadcast to second member, got: {response2}")
             self.assertEqual(response2.get('id'), msg.id)
@@ -657,7 +682,7 @@ class ConsumerTests(TransactionTestCase):
             self.assertFalse(received_something,
                              msg="delete_message for another user's message must be silently ignored")
 
-            await communicator.disconnect()
+            await safe_disconnect(communicator)
 
         asyncio.run(run())
 
@@ -698,7 +723,7 @@ class ConsumerTests(TransactionTestCase):
             self.assertFalse(received_something,
                              msg="delete_message on an already-deleted message must produce no broadcast")
 
-            await communicator.disconnect()
+            await safe_disconnect(communicator)
 
         asyncio.run(run())
 
@@ -1416,7 +1441,7 @@ class RoomChatConsumerTests(TransactionTestCase):
             self.assertFalse(received_something,
                              msg="edit_message past the 15-minute window must produce no broadcast")
 
-            await communicator.disconnect()
+            await safe_disconnect(communicator)
 
         asyncio.run(run())
 
@@ -1456,7 +1481,7 @@ class RoomChatConsumerTests(TransactionTestCase):
             self.assertFalse(received_something,
                              msg="edit_message on another user's message must be silently ignored")
 
-            await communicator.disconnect()
+            await safe_disconnect(communicator)
 
         asyncio.run(run())
 
@@ -1538,7 +1563,7 @@ class RoomChatConsumerTests(TransactionTestCase):
             self.assertFalse(received_something,
                              msg="delete_message on another user's message must be silently ignored")
 
-            await communicator.disconnect()
+            await safe_disconnect(communicator)
 
         asyncio.run(run())
 
@@ -1589,8 +1614,8 @@ class RoomChatConsumerTests(TransactionTestCase):
             self.assertFalse(sender_received,
                              msg="Sender must not receive their own user_typing event (exclude filter)")
 
-            await comm_author.disconnect()
-            await comm_other.disconnect()
+            await safe_disconnect(comm_author)
+            await safe_disconnect(comm_other)
 
         asyncio.run(run())
 

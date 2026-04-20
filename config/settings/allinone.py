@@ -49,10 +49,12 @@ STORAGES = {
 SERVE_MEDIA_LOCALLY = True
 
 # ── TURN server ───────────────────────────────────────────────────────────────
-TURN_HOST = os.environ.get('TURN_HOST', '')
-TURN_SECRET = os.environ.get('TURN_SECRET', '')
+TURN_HOST = os.environ.get('TURN_HOST', '').strip()
+TURN_SECRET = os.environ.get('TURN_SECRET', '').strip()
+TURN_USERNAME = os.environ.get('TURN_USERNAME', '').strip()
+TURN_PASSWORD = os.environ.get('TURN_PASSWORD', '').strip()
 TURN_TTL = int(os.environ.get('TURN_TTL', 3600))
-TURN_ENABLED = bool(TURN_HOST and TURN_SECRET)
+TURN_ENABLED = bool(TURN_HOST and ((TURN_USERNAME and TURN_PASSWORD) or TURN_SECRET))
 
 # Security — relaxed for local/self-hosted use
 SECURE_SSL_REDIRECT = os.environ.get('SECURE_SSL_REDIRECT', 'false').lower() == 'true'

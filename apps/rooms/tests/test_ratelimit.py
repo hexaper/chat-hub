@@ -293,10 +293,12 @@ class ChatConsumerRateLimitTest(TransactionTestCase):
             for i in range(30):
                 await comm_sender.send_json_to({'type': 'chat_message', 'content': f'm{i}'})
 
-            # Drain all 30 from both participants (the group broadcast goes to everyone)
+            # Drain all 30 from observer (group broadcast goes to everyone).
+            # Drain 31 from sender: 30 chat_message broadcasts + 1 presence event
+            # that arrived when observer connected.
             for _ in range(30):
                 await comm_observer.receive_from(timeout=20)
-            for _ in range(30):
+            for _ in range(31):
                 await comm_sender.receive_from(timeout=20)
 
             # Now observer sends a message — should succeed (own fresh counter)

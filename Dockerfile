@@ -4,11 +4,7 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-# Install build + runtime dependencies for Pillow and psycopg2
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq-dev libjpeg-dev zlib1g-dev curl \
-    libjpeg62-turbo libwebp7 && \
-    rm -rf /var/lib/apt/lists/*
+RUN apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=3 -o Acquire::http::Timeout=30 update && apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=3 -o Acquire::http::Timeout=30 install -y --no-install-recommends redis-server libpq-dev libjpeg-dev zlib1g-dev gnupg2 curl lsb-release openssl && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 

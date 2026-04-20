@@ -26,13 +26,23 @@ def healthz(request):
 def ice_servers(request):
     from utils.turn import generate_turn_credentials
     ice = [{'urls': 'stun:stun.l.google.com:19302'}]
-    if getattr(settings, 'TURN_ENABLED', False):
+    if getattr(settings, 'TURN_ENABLED', False) and getattr(settings, 'TURN_HOST', ''):
         host = settings.TURN_HOST
-        username, credential = generate_turn_credentials(
-            settings.TURN_SECRET,
-            str(request.user.pk),
-            settings.TURN_TTL,
-        )
+        static_username = getattr(settings, 'TURN_USERNAME', '').strip()
+        static_password = getattr(settings, 'TURN_PASSWORD', '').strip()
+
+        if static_username and static_password:
+            username = static_username
+            credential = static_password
+        elif getattr(settings, 'TURN_SECRET', '').strip():
+            username, credential = generate_turn_credentials(
+                settings.TURN_SECRET,
+                str(request.user.pk),
+                settings.TURN_TTL,
+            )
+        else:
+            return JsonResponse({'iceServers': ice})
+
         ice.append({
             'urls': [
                 f'turn:{host}:3478?transport=udp',

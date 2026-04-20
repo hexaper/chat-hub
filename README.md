@@ -33,7 +33,7 @@ A real-time video conferencing and chat platform built with Django, Django Chann
 - **User Accounts** — Registration, login, profile with avatar and bio, account settings with live camera/mic preview. Email addresses are unique per account.
 - **Rate Limiting** — Login and registration capped at 5/min per IP; image uploads at 10/min per user; chat messages at 30/min per user. Backed by Redis cache.
 - **Health Check** — `GET /healthz/` performs a DB query and Redis ping; used by Docker `HEALTHCHECK`.
-- **TURN Server Support** — Optional coturn integration for users behind strict NAT/firewalls. Credentials generated server-side via HMAC and served from `/api/ice-servers/`.
+- **TURN Server Support** — Optional TURN integration for users behind strict NAT/firewalls. Supports coturn HMAC credentials (`TURN_SECRET`) and static long-term credentials (`TURN_USERNAME`/`TURN_PASSWORD`) via `/api/ice-servers/`.
 - **Admin Panel** — Staff users (`is_staff=True`) can manage servers, rooms, and users from `/admin-panel/`.
 - **Auto-Cleanup** — Rooms empty for 15+ minutes are automatically deactivated via a management command.
 - **Dark Theme** — Modern responsive UI with Bootstrap 5.
@@ -217,8 +217,10 @@ docker run -p 8000:8000 chat-hub
 | `DB_PASSWORD` | `videocall` | PostgreSQL password |
 | `TEST_USER_PASSWORD` | *(empty)* | If set, creates `test1`/`test2` users and a "Test Server" |
 | `SECRET_KEY` | *(auto-generated)* | Persisted to `/app/mediafiles/.secret_key` on first run |
-| `TURN_HOST` | *(empty)* | TURN server hostname (enables TURN when set alongside `TURN_SECRET`) |
-| `TURN_SECRET` | *(empty)* | HMAC secret shared with coturn |
+| `TURN_HOST` | *(empty)* | TURN server hostname (enables TURN with either HMAC or static credentials) |
+| `TURN_SECRET` | *(empty)* | HMAC secret shared with coturn (optional if using static credentials) |
+| `TURN_USERNAME` | *(empty)* | Static TURN username (used when provided with `TURN_PASSWORD`) |
+| `TURN_PASSWORD` | *(empty)* | Static TURN password (used when provided with `TURN_USERNAME`) |
 
 The Compose file defines two persistent volumes: `media_files` (uploads + TLS cert + secret key) and `pg_data` (PostgreSQL data).
 
@@ -249,7 +251,11 @@ SECURE_SSL_REDIRECT=false
 TEST_USER_PASSWORD=MyTestPass123.
 ADMIN_USER_PASSWORD=AdminPass456.
 TURN_HOST=turn.example.com
-TURN_SECRET=my-turn-secret
+# Option A (coturn HMAC REST API):
+# TURN_SECRET=my-turn-secret
+# Option B (static long-term credentials):
+TURN_USERNAME=my-turn-user
+TURN_PASSWORD=my-turn-password
 ```
 
 ## Environment Variables
@@ -274,7 +280,9 @@ TURN_SECRET=my-turn-secret
 | `SECURE_SSL_REDIRECT` | No | `false` | Redirect HTTP → HTTPS |
 | `CSRF_TRUSTED_ORIGINS` | No | *(empty)* | Comma-separated trusted origins |
 | `TURN_HOST` | No | *(empty)* | TURN server hostname |
-| `TURN_SECRET` | No | *(empty)* | coturn HMAC secret |
+| `TURN_SECRET` | No | *(empty)* | coturn HMAC secret (optional if static credentials are set) |
+| `TURN_USERNAME` | No | *(empty)* | Static TURN username |
+| `TURN_PASSWORD` | No | *(empty)* | Static TURN password |
 | `TURN_TTL` | No | `3600` | TURN credential TTL in seconds |
 | `TEST_USER_PASSWORD` | No | *(empty)* | Seed `test1`/`test2` users on startup |
 | `ADMIN_USER_PASSWORD` | No | *(empty)* | Seed `admin` (staff) user on startup |
@@ -289,7 +297,9 @@ TURN_SECRET=my-turn-secret
 | `DB_PASSWORD` | No | `videocall` | Bundled PostgreSQL password |
 | `SECURE_SSL_REDIRECT` | No | `false` | HTTP-to-HTTPS redirect |
 | `TURN_HOST` | No | *(empty)* | TURN server hostname |
-| `TURN_SECRET` | No | *(empty)* | coturn HMAC secret |
+| `TURN_SECRET` | No | *(empty)* | coturn HMAC secret (optional if static credentials are set) |
+| `TURN_USERNAME` | No | *(empty)* | Static TURN username |
+| `TURN_PASSWORD` | No | *(empty)* | Static TURN password |
 | `TEST_USER_PASSWORD` | No | *(empty)* | Seed test users on startup |
 
 ## URL Reference
@@ -410,7 +420,7 @@ chat-hub/
 │       └── allinone.py      # Bundled PostgreSQL + Redis + WhiteNoise + TLS
 ├── utils/
 │   ├── ratelimit.py         # @ratelimit decorator + is_rate_limited() helper
-│   └── turn.py              # HMAC credential generator for coturn
+│   └── turn.py              # TURN credential helper (HMAC mode)
 ├── static/
 │   ├── css/main.css         # Dark theme styles
 │   └── js/webrtc.js         # WebRTC + signaling client logic
@@ -473,7 +483,7 @@ In development, static files are served via `staticfiles_urlpatterns()` (added i
 
 - Access the site over HTTPS or `localhost`. Browsers block `getUserMedia()` on insecure origins.
 - Check that STUN (`stun:stun.l.google.com:19302`) is reachable.
-- If peers are behind strict NAT, configure a TURN server (`TURN_HOST` + `TURN_SECRET`).
+- If peers are behind strict NAT, configure a TURN server (`TURN_HOST` + `TURN_SECRET`) or (`TURN_HOST` + `TURN_USERNAME` + `TURN_PASSWORD`).
 
 **CSRF errors behind a reverse proxy**
 

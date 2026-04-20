@@ -126,11 +126,15 @@ LOGIN_URL = '/accounts/login/'
 LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/accounts/login/'
 
-# ── TURN server (coturn HMAC REST API) ────────────────────────────────────────
-# Set TURN_ENABLED=True and supply TURN_HOST + TURN_SECRET in production/allinone
+# ── TURN server ───────────────────────────────────────────────────────────────
+# Set TURN_ENABLED=True and supply TURN_HOST plus either:
+# - TURN_SECRET (coturn HMAC REST API), or
+# - TURN_USERNAME + TURN_PASSWORD (static long-term credentials)
 # to relay traffic for users behind symmetric NAT or strict firewalls.
 # Leave disabled in development — STUN-only is fine on a local network.
 TURN_ENABLED = False
 TURN_HOST = ''      # hostname or IP of the coturn server, e.g. "turn.example.com"
 TURN_SECRET = ''    # shared secret configured in coturn's use-auth-secret
+TURN_USERNAME = ''  # static TURN username (used when TURN_SECRET is not provided)
+TURN_PASSWORD = ''  # static TURN password (used when TURN_SECRET is not provided)
 TURN_TTL = 3600     # credential lifetime in seconds (1 hour)

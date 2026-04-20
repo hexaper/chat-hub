@@ -14,9 +14,13 @@ services:
       DB_USER: ${DB_USER:-videocall}
       DB_PASSWORD: ${DB_PASSWORD:-videocall}
       TEST_USER_PASSWORD: ${TEST_USER_PASSWORD:-}
-      # TURN — leave blank to disable; set both to enable relay via coturn
+      # TURN — leave blank to disable.
+      # HMAC mode: set TURN_HOST + TURN_SECRET.
+      # Static mode: set TURN_HOST + TURN_USERNAME + TURN_PASSWORD.
       TURN_HOST: ${TURN_HOST:-}
       TURN_SECRET: ${TURN_SECRET:-}
+      TURN_USERNAME: ${TURN_USERNAME:-}
+      TURN_PASSWORD: ${TURN_PASSWORD:-}
       TURN_TTL: ${TURN_TTL:-3600}
     volumes:
       - media_files:/app/mediafiles
