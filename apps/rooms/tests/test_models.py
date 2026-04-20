@@ -1,5 +1,5 @@
 from django.test import TestCase
-from apps.rooms.models import Server, Room, generate_invite_code
+from apps.rooms.models import Server, Room, ChatMessage, RoomChatMessage, generate_invite_code
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
@@ -53,3 +53,19 @@ class ModelLogicTests(TestCase):
         self.assertEqual(message.user, self.user)
 
     # Add more model tests
+
+
+class IndexMetaTests(TestCase):
+    """Verify composite indexes declared on model Meta are present."""
+
+    def test_chatmessage_has_server_created_index(self):
+        index_names = [idx.name for idx in ChatMessage._meta.indexes]
+        self.assertIn('chat_server_created_idx', index_names)
+
+    def test_roomchatmessage_has_room_created_index(self):
+        index_names = [idx.name for idx in RoomChatMessage._meta.indexes]
+        self.assertIn('roomchat_room_created_idx', index_names)
+
+    def test_room_has_server_active_index(self):
+        index_names = [idx.name for idx in Room._meta.indexes]
+        self.assertIn('room_server_active_idx', index_names)

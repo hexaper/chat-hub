@@ -65,6 +65,11 @@ class Room(models.Model):
     password = models.CharField(max_length=255, blank=True)
     last_empty_at = models.DateTimeField(null=True, blank=True)
 
+    class Meta:
+        indexes = [
+            models.Index(fields=['server', 'is_active'], name='room_server_active_idx'),
+        ]
+
     def set_password(self, raw_password):
         self.password = make_password(raw_password) if raw_password else ''
 
@@ -97,6 +102,9 @@ class ChatMessage(models.Model):
 
     class Meta:
         ordering = ['created_at']
+        indexes = [
+            models.Index(fields=['server', '-created_at'], name='chat_server_created_idx'),
+        ]
 
     def __str__(self):
         return f"{self.user.username}: {self.content[:50]}"
@@ -112,6 +120,9 @@ class RoomChatMessage(models.Model):
 
     class Meta:
         ordering = ['created_at']
+        indexes = [
+            models.Index(fields=['room', '-created_at'], name='roomchat_room_created_idx'),
+        ]
 
     def __str__(self):
         return f"{self.user.username}: {self.content[:50]}"
