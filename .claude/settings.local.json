@@ -1,0 +1,20 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git:*)",
+      "Bash(python manage.py:*)",
+      "Bash(source venv/bin/activate && python manage.py:*)",
+      "Bash(source venv/bin/activate && python -c:*)",
+      "Bash(ls:*)",
+      "Bash(mkdir:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(jq:*)",
+      "Bash(source venv/bin/activate)",
+      "Bash(DJANGO_SETTINGS_MODULE=config.settings.development python -c \":*)",
+      "Read(//home/hexaper/chat-hub/**)",
+      "Read(//tmp/**)"
+    ],
+    "defaultMode": "bypassPermissions"
+  }
+}

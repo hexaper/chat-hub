@@ -11,8 +11,7 @@ mediafiles/
 .venv/
 venv/
 node_modules/
-.claude
-CLAUDE.md
+
 .git
 __pycache__
 *.pyc
@@ -31,3 +30,4 @@ comms
 ssl.key
 ssl.crt
 build.log
+.vscode
