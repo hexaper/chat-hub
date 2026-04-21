@@ -115,12 +115,35 @@
                         </div>
                     </div>
                     {% if m.user != server.owner %}
-                    <form method="post" action="{% url 'server_kick_member' server_slug=server.slug %}"
-                          onsubmit="return confirm('Remove {{ m.user.username|escapejs }} from this server?')">
-                        {% csrf_token %}
-                        <input type="hidden" name="user_id" value="{{ m.user.id }}">
-                        <button class="btn btn-sm btn-outline-danger"><i class="bi bi-x-lg"></i></button>
-                    </form>
+                    <div class="d-flex gap-1">
+                        <form method="post" action="{% url 'server_set_role' server_slug=server.slug %}" class="d-inline">
+                            {% csrf_token %}
+                            <input type="hidden" name="user_id" value="{{ m.user.id }}">
+                            {% if m.role == 'admin' %}
+                            <button class="btn btn-sm btn-outline-secondary" name="role" value="member" title="Set member">M</button>
+                            {% else %}
+                            <button class="btn btn-sm btn-outline-primary" name="role" value="admin" title="Set admin">A</button>
+                            {% endif %}
+                        </form>
+                        <form method="post" action="{% url 'server_mute_member' server_slug=server.slug %}" class="d-inline">
+                            {% csrf_token %}
+                            <input type="hidden" name="user_id" value="{{ m.user.id }}">
+                            <input type="hidden" name="minutes" value="15">
+                            <button class="btn btn-sm btn-outline-warning" title="Mute 15m"><i class="bi bi-mic-mute"></i></button>
+                        </form>
+                        <form method="post" action="{% url 'server_ban_member' server_slug=server.slug %}" class="d-inline"
+                              onsubmit="return confirm('Ban {{ m.user.username|escapejs }} from this server?')">
+                            {% csrf_token %}
+                            <input type="hidden" name="user_id" value="{{ m.user.id }}">
+                            <button class="btn btn-sm btn-outline-danger" title="Ban"><i class="bi bi-slash-circle"></i></button>
+                        </form>
+                        <form method="post" action="{% url 'server_kick_member' server_slug=server.slug %}"
+                              onsubmit="return confirm('Remove {{ m.user.username|escapejs }} from this server?')">
+                            {% csrf_token %}
+                            <input type="hidden" name="user_id" value="{{ m.user.id }}">
+                            <button class="btn btn-sm btn-outline-danger" title="Kick"><i class="bi bi-x-lg"></i></button>
+                        </form>
+                    </div>
                     {% endif %}
                 </li>
                 {% endfor %}

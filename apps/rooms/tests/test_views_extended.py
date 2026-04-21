@@ -5,7 +5,7 @@ from django.core.files.uploadedfile import SimpleUploadedFile
 from io import BytesIO
 from PIL import Image
 
-from apps.rooms.models import Server, ServerMember, Room
+from apps.rooms.models import ModerationAction, Server, ServerBan, ServerMember, Room
 
 User = get_user_model()
 
@@ -87,6 +87,38 @@ class RoomViewTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.server.refresh_from_db()
         self.assertNotEqual(old_code, self.server.invite_code)
+
+    def test_admin_can_ban_member(self):
+        admin_user = User.objects.create_user(username='adminx', password='Tester123.')
+        ServerMember.objects.create(server=self.server, user=admin_user, role=ServerMember.ROLE_ADMIN)
+        ServerMember.objects.create(server=self.server, user=self.user)
+
+        self.client.login(username='adminx', password='Tester123.')
+        response = self.client.post(reverse('server_ban_member', args=[self.server.slug]), {
+            'user_id': self.user.id,
+            'reason': 'spam',
+        })
+
+        self.assertEqual(response.status_code, 302)
+        self.assertTrue(ServerBan.objects.filter(server=self.server, user=self.user, lifted_at__isnull=True).exists())
+        self.assertFalse(ServerMember.objects.filter(server=self.server, user=self.user).exists())
+        self.assertTrue(ModerationAction.objects.filter(
+            server=self.server,
+            actor=admin_user,
+            target=self.user,
+            action=ModerationAction.ACTION_BAN,
+            reason='spam',
+        ).exists())
+
+    def test_banned_user_cannot_open_server_detail(self):
+        ServerMember.objects.create(server=self.server, user=self.user)
+        ServerBan.objects.create(server=self.server, user=self.user, banned_by=self.other_user)
+
+        self.client.login(username='testuser', password='Tester123.')
+        response = self.client.get(reverse('server_detail', args=[self.server.slug]))
+
+        self.assertEqual(response.status_code, 302)
+        self.assertRedirects(response, reverse('server_list'))
 
     def test_server_leave_owner_forbidden(self):
         self.client.login(username='other', password='Tester123.')

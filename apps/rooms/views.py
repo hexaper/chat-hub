@@ -16,7 +16,7 @@ from django.views.decorators.http import require_POST as require_post_method
 from PIL import Image
 
 from utils.ratelimit import ratelimit
-from .models import Server, ServerMember, Room, RoomParticipant, ChatMessage
+from .models import Server, ServerMember, ServerBan, ModerationAction, Room, RoomParticipant, ChatMessage
 from .permissions import can_manage_server_settings, can_moderate_server
 from .forms import ServerForm, ServerSettingsForm, RoomForm, RoomPasswordForm
 
@@ -76,6 +76,9 @@ def server_create(request):
 @login_required
 def server_detail(request, server_slug):
     server = get_object_or_404(Server, slug=server_slug)
+    if ServerBan.objects.filter(server=server, user=request.user, lifted_at__isnull=True).exists():
+        messages.error(request, 'You are banned from this server.')
+        return redirect('server_list')
     is_member = ServerMember.objects.filter(server=server, user=request.user).exists()
 
     if not is_member:
@@ -224,6 +227,62 @@ def server_set_role(request, server_slug):
     target.role = role
     target.save(update_fields=['role'])
     messages.success(request, 'Role updated.')
+    return redirect('server_settings', server_slug=server.slug)
+
+
+@login_required
+@require_post_method
+def server_ban_member(request, server_slug):
+    server = get_object_or_404(Server, slug=server_slug)
+    if not can_moderate_server(server, request.user):
+        raise Http404()
+    target = get_object_or_404(User, id=request.POST.get('user_id'))
+    if target.id == server.owner_id:
+        messages.error(request, 'Owner cannot be banned.')
+        return redirect('server_settings', server_slug=server.slug)
+    ServerBan.objects.get_or_create(
+        server=server,
+        user=target,
+        lifted_at__isnull=True,
+        defaults={
+            'banned_by': request.user,
+            'reason': request.POST.get('reason', '')[:255],
+        },
+    )
+    ServerMember.objects.filter(server=server, user=target).delete()
+    ModerationAction.objects.create(
+        server=server,
+        actor=request.user,
+        target=target,
+        action=ModerationAction.ACTION_BAN,
+        reason=request.POST.get('reason', '')[:255],
+    )
+    messages.success(request, 'Member banned.')
+    return redirect('server_settings', server_slug=server.slug)
+
+
+@login_required
+@require_post_method
+def server_mute_member(request, server_slug):
+    server = get_object_or_404(Server, slug=server_slug)
+    if not can_moderate_server(server, request.user):
+        raise Http404()
+    target = get_object_or_404(ServerMember, server=server, user_id=request.POST.get('user_id'))
+    try:
+        minutes = int(request.POST.get('minutes', '15'))
+    except (TypeError, ValueError):
+        minutes = 15
+    minutes = max(1, min(1440, minutes))
+    target.muted_until = timezone.now() + timedelta(minutes=minutes)
+    target.save(update_fields=['muted_until'])
+    ModerationAction.objects.create(
+        server=server,
+        actor=request.user,
+        target=target.user,
+        action=ModerationAction.ACTION_MUTE,
+        reason=request.POST.get('reason', '')[:255],
+    )
+    messages.success(request, 'Member muted.')
     return redirect('server_settings', server_slug=server.slug)
 
 
