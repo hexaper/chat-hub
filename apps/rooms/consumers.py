@@ -98,6 +98,8 @@ class ServerChatConsumer(AsyncWebsocketConsumer):
             content = data.get('content', '').strip()
             if not content:
                 return
+            if not await self.is_member():
+                return
             if await sync_to_async(is_rate_limited)('chat', self.user.pk, '30/m'):
                 return
             if await self.is_muted():
@@ -118,6 +120,10 @@ class ServerChatConsumer(AsyncWebsocketConsumer):
         elif msg_type == 'chat_image':
             message_id = data.get('message_id')
             if not message_id:
+                return
+            if not await self.is_member():
+                return
+            if await self.is_muted():
                 return
             msg = await self.get_image_message(message_id)
             if msg:

@@ -1,6 +1,7 @@
 import asyncio
 import json
 from datetime import timedelta
+from asgiref.sync import sync_to_async
 from channels.testing import WebsocketCommunicator
 from channels.routing import URLRouter
 from channels.auth import AuthMiddlewareStack
@@ -83,6 +84,10 @@ class ConsumerTests(TransactionTestCase):
         if not sessionid:
             return []
         return [(b'cookie', f'sessionid={sessionid.value}'.encode())]
+
+    def _ban_member(self, user):
+        ServerBan.objects.create(server=self.server, user=user, banned_by=self.other)
+        transaction.commit()
 
     def test_server_chat_rejects_unauthenticated(self):
         communicator = WebsocketCommunicator(self.application, f'/ws/chat/{self.server.slug}/')
@@ -437,6 +442,75 @@ class ConsumerTests(TransactionTestCase):
         self.assertFalse(
             ChatMessage.objects.filter(server=self.server, user=self.user, content='muted hello').exists()
         )
+
+    def test_banned_member_after_connect_cannot_post(self):
+        ServerMember.objects.get_or_create(server=self.server, user=self.user)
+        ServerMember.objects.get_or_create(server=self.server, user=self.other)
+        transaction.commit()
+
+        headers1 = self._get_cookie_header(self.user)
+        headers2 = self._get_cookie_header(self.other)
+        comm1 = WebsocketCommunicator(self.application, f'/ws/chat/{self.server.slug}/', headers=headers1)
+        comm2 = WebsocketCommunicator(self.application, f'/ws/chat/{self.server.slug}/', headers=headers2)
+
+        async def run():
+            connected1, _ = await comm1.connect()
+            connected2, _ = await comm2.connect()
+            self.assertTrue(connected1)
+            self.assertTrue(connected2)
+
+            await drain_until(comm1, 'history')
+            await drain_until(comm2, 'history')
+
+            await sync_to_async(self._ban_member)(self.user)
+
+            await comm1.send_json_to({'type': 'chat_message', 'content': 'banned hello'})
+
+            with self.assertRaises(asyncio.TimeoutError):
+                await comm2.receive_from(timeout=0.3)
+
+            await safe_disconnect(comm1)
+            await safe_disconnect(comm2)
+
+        asyncio.run(run())
+        self.assertFalse(
+            ChatMessage.objects.filter(server=self.server, user=self.user, content='banned hello').exists()
+        )
+
+    def test_muted_member_chat_image_dropped(self):
+        membership = ServerMember.objects.create(server=self.server, user=self.user)
+        ServerMember.objects.get_or_create(server=self.server, user=self.other)
+        membership.muted_until = timezone.now() + timedelta(minutes=5)
+        membership.save(update_fields=['muted_until'])
+
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        image_file = SimpleUploadedFile('test.png', b'PNGDATA', content_type='image/png')
+        msg = ChatMessage.objects.create(server=self.server, user=self.user, content='hello', image=image_file)
+        transaction.commit()
+
+        headers1 = self._get_cookie_header(self.user)
+        headers2 = self._get_cookie_header(self.other)
+        comm1 = WebsocketCommunicator(self.application, f'/ws/chat/{self.server.slug}/', headers=headers1)
+        comm2 = WebsocketCommunicator(self.application, f'/ws/chat/{self.server.slug}/', headers=headers2)
+
+        async def run():
+            connected1, _ = await comm1.connect()
+            connected2, _ = await comm2.connect()
+            self.assertTrue(connected1)
+            self.assertTrue(connected2)
+
+            await drain_until(comm1, 'history')
+            await drain_until(comm2, 'history')
+
+            await comm1.send_json_to({'type': 'chat_image', 'message_id': msg.id})
+
+            with self.assertRaises(asyncio.TimeoutError):
+                await comm2.receive_from(timeout=0.3)
+
+            await safe_disconnect(comm1)
+            await safe_disconnect(comm2)
+
+        asyncio.run(run())
 
     def test_server_chat_history_and_live_payload_include_mentions(self):
         ServerMember.objects.get_or_create(server=self.server, user=self.user)
