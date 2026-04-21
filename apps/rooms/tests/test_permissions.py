@@ -114,6 +114,58 @@ class PermissionTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
 
+    def test_admin_member_cannot_update_server_settings(self):
+        """Admin members can view settings but cannot update core server config."""
+        ServerMember.objects.create(server=self.server, user=self.user, role=ServerMember.ROLE_ADMIN)
+        self.client.login(username='testuser', password='Tester123.')
+
+        response = self.client.post(
+            reverse('server_settings', args=[self.server.slug]),
+            {
+                'name': 'Updated Server',
+                'description': 'Updated description',
+                'is_public': 'on',
+            },
+        )
+
+        self.assertEqual(response.status_code, 404)
+        self.server.refresh_from_db()
+        self.assertEqual(self.server.name, 'Test Server')
+
+    def test_admin_settings_page_hides_owner_controls(self):
+        """Admin view of settings omits owner-only configuration controls."""
+        target_user = User.objects.create_user(username='memberx', password='Tester123.')
+        ServerMember.objects.create(server=self.server, user=self.user, role=ServerMember.ROLE_ADMIN)
+        ServerMember.objects.create(server=self.server, user=target_user)
+        self.client.login(username='testuser', password='Tester123.')
+
+        response = self.client.get(reverse('server_settings', args=[self.server.slug]))
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, 'Save Changes')
+        self.assertNotContains(response, 'Regenerate Code')
+        self.assertNotContains(response, 'Delete Server')
+        self.assertContains(response, 'title="Set admin"')
+
+    def test_admin_member_can_change_member_role(self):
+        """Admin members can promote a normal member through the role endpoint."""
+        target_user = User.objects.create_user(username='membery', password='Tester123.')
+        ServerMember.objects.create(server=self.server, user=self.user, role=ServerMember.ROLE_ADMIN)
+        target_membership = ServerMember.objects.create(server=self.server, user=target_user)
+        self.client.login(username='testuser', password='Tester123.')
+
+        response = self.client.post(
+            reverse('server_set_role', args=[self.server.slug]),
+            {
+                'user_id': target_user.id,
+                'role': ServerMember.ROLE_ADMIN,
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        target_membership.refresh_from_db()
+        self.assertEqual(target_membership.role, ServerMember.ROLE_ADMIN)
+
     def test_member_cannot_change_roles(self):
         """Regular members cannot update other members' roles."""
         ServerMember.objects.create(server=self.server, user=self.user)

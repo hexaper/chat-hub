@@ -17,7 +17,7 @@ from PIL import Image
 
 from utils.ratelimit import ratelimit
 from .models import Server, ServerMember, Room, RoomParticipant, ChatMessage
-from .permissions import can_moderate_server
+from .permissions import can_manage_server_settings, can_moderate_server
 from .forms import ServerForm, ServerSettingsForm, RoomForm, RoomPasswordForm
 
 User = get_user_model()
@@ -125,15 +125,16 @@ def server_join(request):
 
 @login_required
 def server_settings(request, server_slug):
-    if _is_admin(request.user):
-        server = get_object_or_404(Server, slug=server_slug)
-    elif can_moderate_server(get_object_or_404(Server, slug=server_slug), request.user):
-        server = get_object_or_404(Server, slug=server_slug)
-    else:
-        server = get_object_or_404(Server, slug=server_slug, owner=request.user)
+    server = get_object_or_404(Server, slug=server_slug)
+    if not can_moderate_server(server, request.user):
+        raise Http404()
+
+    can_manage_settings = can_manage_server_settings(server, request.user)
     members = ServerMember.objects.filter(server=server).select_related('user').order_by('joined_at')
 
     if request.method == 'POST':
+        if not can_manage_settings:
+            raise Http404()
         form = ServerSettingsForm(request.POST, request.FILES, instance=server)
         if form.is_valid():
             form.save()
@@ -146,6 +147,7 @@ def server_settings(request, server_slug):
         'server': server,
         'form': form,
         'members': members,
+        'can_manage_settings': can_manage_settings,
     })
 
 

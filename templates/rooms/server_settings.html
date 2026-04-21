@@ -15,6 +15,7 @@
 <div class="row g-4">
     <!-- Settings column -->
     <div class="col-lg-6">
+        {% if can_manage_settings %}
         <!-- General settings -->
         <div class="card mb-4">
             <div class="card-header">
@@ -75,6 +76,18 @@
                 </form>
             </div>
         </div>
+        {% else %}
+        <div class="card mb-4">
+            <div class="card-header">
+                <i class="bi bi-shield-check me-2"></i>Moderation
+            </div>
+            <div class="card-body">
+                <p class="mb-0" style="color:var(--text-muted)">
+                    Role and member moderation controls are available below. Core server settings remain owner-only.
+                </p>
+            </div>
+        </div>
+        {% endif %}
     </div>
 
     <!-- Members column -->

@@ -18,3 +18,7 @@ def is_server_admin(server, user):
 
 def can_moderate_server(server, user):
     return is_server_owner(server, user) or is_server_admin(server, user) or user.is_staff
+
+
+def can_manage_server_settings(server, user):
+    return is_server_owner(server, user) or user.is_staff
