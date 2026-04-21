@@ -270,10 +270,11 @@ def server_mute_member(request, server_slug):
     server = get_object_or_404(Server, slug=server_slug)
     if not can_moderate_server(server, request.user):
         raise Http404()
-    target = get_object_or_404(ServerMember, server=server, user_id=request.POST.get('user_id'))
-    if target.user_id == server.owner_id:
+    target_user_id = request.POST.get('user_id')
+    if str(target_user_id) == str(server.owner_id):
         messages.error(request, 'Owner cannot be muted.')
         return redirect('server_settings', server_slug=server.slug)
+    target = get_object_or_404(ServerMember, server=server, user_id=target_user_id)
     try:
         minutes = int(request.POST.get('minutes', '15'))
     except (TypeError, ValueError):
