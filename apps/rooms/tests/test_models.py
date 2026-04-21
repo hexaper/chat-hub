@@ -1,5 +1,15 @@
 from django.test import TestCase
-from apps.rooms.models import Server, Room, ChatMessage, RoomChatMessage, generate_invite_code
+from django.db import IntegrityError
+from apps.rooms.models import (
+    Server,
+    ServerMember,
+    ServerBan,
+    ChatReadState,
+    Room,
+    ChatMessage,
+    RoomChatMessage,
+    generate_invite_code,
+)
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
@@ -69,3 +79,37 @@ class IndexMetaTests(TestCase):
     def test_room_has_server_active_index(self):
         index_names = [idx.name for idx in Room._meta.indexes]
         self.assertIn('room_server_active_idx', index_names)
+
+
+class TrustAndReadStateModelTests(TestCase):
+    @classmethod
+    def setUpTestData(cls):
+        cls.owner = User.objects.create_user(username='owner', password='Tester123.')
+        cls.user = User.objects.create_user(username='member', password='Tester123.')
+        cls.server = Server.objects.create(name='S1', owner=cls.owner)
+
+    def test_server_member_defaults_to_member_role(self):
+        member = ServerMember.objects.create(server=self.server, user=self.user)
+        self.assertEqual(member.role, ServerMember.ROLE_MEMBER)
+
+    def test_server_member_can_be_admin(self):
+        member = ServerMember.objects.create(
+            server=self.server,
+            user=self.user,
+            role=ServerMember.ROLE_ADMIN,
+        )
+        self.assertEqual(member.role, ServerMember.ROLE_ADMIN)
+
+    def test_server_ban_blocks_duplicate_active_ban(self):
+        ServerBan.objects.create(server=self.server, user=self.user, banned_by=self.owner)
+        with self.assertRaises(IntegrityError):
+            ServerBan.objects.create(server=self.server, user=self.user, banned_by=self.owner)
+
+    def test_chat_read_state_stores_last_read_message(self):
+        msg = ChatMessage.objects.create(server=self.server, user=self.owner, content='hello')
+        state = ChatReadState.objects.create(
+            server=self.server,
+            user=self.user,
+            last_read_message=msg,
+        )
+        self.assertEqual(state.last_read_message_id, msg.id)

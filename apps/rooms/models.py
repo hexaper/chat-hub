@@ -39,8 +39,17 @@ class Server(models.Model):
 
 
 class ServerMember(models.Model):
+    ROLE_MEMBER = 'member'
+    ROLE_ADMIN = 'admin'
+    ROLE_CHOICES = (
+        (ROLE_MEMBER, 'Member'),
+        (ROLE_ADMIN, 'Admin'),
+    )
+
     server = models.ForeignKey(Server, on_delete=models.CASCADE)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    role = models.CharField(max_length=16, choices=ROLE_CHOICES, default=ROLE_MEMBER)
+    muted_until = models.DateTimeField(null=True, blank=True)
     joined_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -141,3 +150,93 @@ class RoomParticipant(models.Model):
 
     def __str__(self):
         return f"{self.user.username} in {self.room.name}"
+
+
+class ServerBan(models.Model):
+    server = models.ForeignKey(Server, on_delete=models.CASCADE, related_name='bans')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    banned_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='issued_server_bans',
+    )
+    reason = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    lifted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['server', 'user'],
+                condition=models.Q(lifted_at__isnull=True),
+                name='uniq_active_server_ban',
+            )
+        ]
+
+
+class ModerationAction(models.Model):
+    ACTION_BAN = 'ban'
+    ACTION_UNBAN = 'unban'
+    ACTION_MUTE = 'mute'
+    ACTION_UNMUTE = 'unmute'
+    ACTION_KICK = 'kick'
+    ACTION_CHOICES = (
+        (ACTION_BAN, 'Ban'),
+        (ACTION_UNBAN, 'Unban'),
+        (ACTION_MUTE, 'Mute'),
+        (ACTION_UNMUTE, 'Unmute'),
+        (ACTION_KICK, 'Kick'),
+    )
+
+    server = models.ForeignKey(Server, on_delete=models.CASCADE, related_name='moderation_actions')
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='moderation_actions_made',
+    )
+    target = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='moderation_actions_received',
+    )
+    action = models.CharField(max_length=16, choices=ACTION_CHOICES)
+    reason = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+
+class ChatMention(models.Model):
+    message = models.ForeignKey(ChatMessage, on_delete=models.CASCADE, related_name='mentions')
+    mentioned_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('message', 'mentioned_user')
+
+
+class RoomChatMention(models.Model):
+    message = models.ForeignKey(RoomChatMessage, on_delete=models.CASCADE, related_name='mentions')
+    mentioned_user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ('message', 'mentioned_user')
+
+
+class ChatReadState(models.Model):
+    server = models.ForeignKey(Server, on_delete=models.CASCADE, related_name='chat_read_states')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    last_read_message = models.ForeignKey(ChatMessage, on_delete=models.SET_NULL, null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('server', 'user')
+
+
+class RoomChatReadState(models.Model):
+    room = models.ForeignKey(Room, on_delete=models.CASCADE, related_name='chat_read_states')
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    last_read_message = models.ForeignKey(RoomChatMessage, on_delete=models.SET_NULL, null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('room', 'user')
