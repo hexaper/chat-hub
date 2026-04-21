@@ -1,6 +1,7 @@
 import uuid
 import string
 import secrets
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.conf import settings
 from django.contrib.auth.hashers import make_password, check_password
@@ -231,6 +232,17 @@ class ChatReadState(models.Model):
     class Meta:
         unique_together = ('server', 'user')
 
+    def clean(self):
+        super().clean()
+        if self.last_read_message_id and self.last_read_message.server_id != self.server_id:
+            raise ValidationError({
+                'last_read_message': 'Last read message must belong to the same server.',
+            })
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
 
 class RoomChatReadState(models.Model):
     room = models.ForeignKey(Room, on_delete=models.CASCADE, related_name='chat_read_states')
@@ -240,3 +252,14 @@ class RoomChatReadState(models.Model):
 
     class Meta:
         unique_together = ('room', 'user')
+
+    def clean(self):
+        super().clean()
+        if self.last_read_message_id and self.last_read_message.room_id != self.room_id:
+            raise ValidationError({
+                'last_read_message': 'Last read message must belong to the same room.',
+            })
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)

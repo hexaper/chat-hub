@@ -1,10 +1,12 @@
 from django.test import TestCase
+from django.core.exceptions import ValidationError
 from django.db import IntegrityError
 from apps.rooms.models import (
     Server,
     ServerMember,
     ServerBan,
     ChatReadState,
+    RoomChatReadState,
     Room,
     ChatMessage,
     RoomChatMessage,
@@ -113,3 +115,28 @@ class TrustAndReadStateModelTests(TestCase):
             last_read_message=msg,
         )
         self.assertEqual(state.last_read_message_id, msg.id)
+
+    def test_chat_read_state_rejects_message_from_another_server(self):
+        other_server = Server.objects.create(name='S2', owner=self.owner)
+        other_msg = ChatMessage.objects.create(server=other_server, user=self.owner, content='wrong')
+        state = ChatReadState(
+            server=self.server,
+            user=self.user,
+            last_read_message=other_msg,
+        )
+
+        with self.assertRaises(ValidationError):
+            state.full_clean()
+
+    def test_room_chat_read_state_rejects_message_from_another_room(self):
+        room = Room.objects.create(name='Room 1', server=self.server, host=self.owner)
+        other_room = Room.objects.create(name='Room 2', server=self.server, host=self.owner)
+        other_msg = RoomChatMessage.objects.create(room=other_room, user=self.owner, content='wrong')
+        state = RoomChatReadState(
+            room=room,
+            user=self.user,
+            last_read_message=other_msg,
+        )
+
+        with self.assertRaises(ValidationError):
+            state.full_clean()
