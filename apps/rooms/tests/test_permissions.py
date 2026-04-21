@@ -1,7 +1,13 @@
 from django.test import TestCase
 from django.urls import reverse
 from django.contrib.auth import get_user_model
-from apps.rooms.models import Server, Room
+from apps.rooms.models import Server, Room, ServerMember
+from apps.rooms.permissions import (
+    can_moderate_server,
+    get_membership,
+    is_server_admin,
+    is_server_owner,
+)
 
 User = get_user_model()
 
@@ -12,6 +18,7 @@ class PermissionTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username='testuser', password='Tester123.')
         self.other_user = User.objects.create_user(username='other', password='Tester123.')
+        self.staff_user = User.objects.create_user(username='staff', password='Tester123.', is_staff=True)
         self.server = Server.objects.create(name='Test Server', owner=self.other_user)
         self.room = Room.objects.create(name='Test Room', server=self.server, host=self.other_user)
 
@@ -97,3 +104,72 @@ class PermissionTests(TestCase):
         self.assertEqual(response.status_code, 404)
         # Server must still exist
         self.assertTrue(Server.objects.filter(slug=self.server.slug).exists())
+
+    def test_admin_member_can_open_server_settings(self):
+        """Admin server members can access server settings."""
+        ServerMember.objects.create(server=self.server, user=self.user, role=ServerMember.ROLE_ADMIN)
+        self.client.login(username='testuser', password='Tester123.')
+
+        response = self.client.get(reverse('server_settings', args=[self.server.slug]))
+
+        self.assertEqual(response.status_code, 200)
+
+    def test_member_cannot_change_roles(self):
+        """Regular members cannot update other members' roles."""
+        ServerMember.objects.create(server=self.server, user=self.user)
+        target_membership = ServerMember.objects.create(server=self.server, user=self.other_user)
+        self.client.login(username='testuser', password='Tester123.')
+
+        response = self.client.post(
+            reverse('server_set_role', args=[self.server.slug]),
+            {
+                'user_id': self.other_user.id,
+                'role': ServerMember.ROLE_ADMIN,
+            },
+        )
+
+        self.assertEqual(response.status_code, 404)
+        target_membership.refresh_from_db()
+        self.assertEqual(target_membership.role, ServerMember.ROLE_MEMBER)
+
+    def test_staff_can_open_server_settings(self):
+        """Staff users can moderate server settings without membership."""
+        self.client.login(username='staff', password='Tester123.')
+
+        response = self.client.get(reverse('server_settings', args=[self.server.slug]))
+
+        self.assertEqual(response.status_code, 200)
+
+    def test_cannot_change_owner_role(self):
+        """Owner membership role remains immutable through the role endpoint."""
+        admin_user = User.objects.create_user(username='admin_user', password='Tester123.')
+        ServerMember.objects.create(server=self.server, user=admin_user, role=ServerMember.ROLE_ADMIN)
+        owner_membership, _ = ServerMember.objects.get_or_create(server=self.server, user=self.other_user)
+        self.client.login(username='admin_user', password='Tester123.')
+
+        response = self.client.post(
+            reverse('server_set_role', args=[self.server.slug]),
+            {
+                'user_id': self.other_user.id,
+                'role': ServerMember.ROLE_ADMIN,
+            },
+        )
+
+        self.assertEqual(response.status_code, 302)
+        owner_membership.refresh_from_db()
+        self.assertEqual(owner_membership.role, ServerMember.ROLE_MEMBER)
+
+    def test_permission_helpers_reflect_membership_roles(self):
+        """Helper functions distinguish owner, admin, and regular members."""
+        admin_membership = ServerMember.objects.create(
+            server=self.server,
+            user=self.user,
+            role=ServerMember.ROLE_ADMIN,
+        )
+
+        self.assertEqual(get_membership(self.server, self.user), admin_membership)
+        self.assertTrue(is_server_admin(self.server, self.user))
+        self.assertFalse(is_server_owner(self.server, self.user))
+        self.assertTrue(can_moderate_server(self.server, self.user))
+        self.assertTrue(is_server_owner(self.server, self.other_user))
+        self.assertTrue(can_moderate_server(self.server, self.staff_user))

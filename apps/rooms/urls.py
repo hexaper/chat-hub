@@ -10,6 +10,7 @@ urlpatterns = [
     path('servers/<uuid:server_slug>/', views.server_detail, name='server_detail'),
     path('servers/<uuid:server_slug>/settings/', views.server_settings, name='server_settings'),
     path('servers/<uuid:server_slug>/settings/kick/', views.server_kick_member, name='server_kick_member'),
+    path('servers/<uuid:server_slug>/settings/role/', views.server_set_role, name='server_set_role'),
     path('servers/<uuid:server_slug>/settings/regenerate-invite/', views.server_regenerate_invite, name='server_regenerate_invite'),
     path('servers/<uuid:server_slug>/leave/', views.server_leave, name='server_leave'),
     path('servers/<uuid:server_slug>/delete/', views.server_delete, name='server_delete'),

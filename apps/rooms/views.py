@@ -8,6 +8,7 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db.models import Count, Prefetch
+from django.http import Http404
 from django.http import JsonResponse
 from django.shortcuts import render, get_object_or_404, redirect
 from django.utils import timezone
@@ -16,6 +17,7 @@ from PIL import Image
 
 from utils.ratelimit import ratelimit
 from .models import Server, ServerMember, Room, RoomParticipant, ChatMessage
+from .permissions import can_moderate_server
 from .forms import ServerForm, ServerSettingsForm, RoomForm, RoomPasswordForm
 
 User = get_user_model()
@@ -125,6 +127,8 @@ def server_join(request):
 def server_settings(request, server_slug):
     if _is_admin(request.user):
         server = get_object_or_404(Server, slug=server_slug)
+    elif can_moderate_server(get_object_or_404(Server, slug=server_slug), request.user):
+        server = get_object_or_404(Server, slug=server_slug)
     else:
         server = get_object_or_404(Server, slug=server_slug, owner=request.user)
     members = ServerMember.objects.filter(server=server).select_related('user').order_by('joined_at')
@@ -199,6 +203,26 @@ def server_delete(request, server_slug):
     server.delete()
     messages.success(request, f'Server "{name}" deleted.')
     return redirect('server_list')
+
+
+@login_required
+@require_post_method
+def server_set_role(request, server_slug):
+    server = get_object_or_404(Server, slug=server_slug)
+    if not can_moderate_server(server, request.user):
+        raise Http404()
+    target = get_object_or_404(ServerMember, server=server, user_id=request.POST.get('user_id'))
+    role = request.POST.get('role')
+    if role not in {ServerMember.ROLE_MEMBER, ServerMember.ROLE_ADMIN}:
+        messages.error(request, 'Invalid role.')
+        return redirect('server_settings', server_slug=server.slug)
+    if target.user_id == server.owner_id:
+        messages.error(request, 'Owner role cannot be changed.')
+        return redirect('server_settings', server_slug=server.slug)
+    target.role = role
+    target.save(update_fields=['role'])
+    messages.success(request, 'Role updated.')
+    return redirect('server_settings', server_slug=server.slug)
 
 
 # ── Room views ────────────────────────────────────────────────────────────────
