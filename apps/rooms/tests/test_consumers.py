@@ -6,12 +6,23 @@ from channels.routing import URLRouter
 from channels.auth import AuthMiddlewareStack
 
 from django.test import TransactionTestCase
+from django.test import override_settings
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
 from django.db import transaction
 from django.utils import timezone
 
 from apps.rooms import routing
-from apps.rooms.models import Server, ServerMember, ChatMessage, Room, RoomParticipant, RoomChatMessage
+from apps.rooms.models import (
+    ChatMention,
+    ChatMessage,
+    Room,
+    RoomChatMessage,
+    RoomParticipant,
+    Server,
+    ServerBan,
+    ServerMember,
+)
 
 
 async def drain_until(communicator: WebsocketCommunicator, target_type: str, timeout: float = 20) -> dict:
@@ -42,10 +53,18 @@ async def safe_disconnect(communicator: WebsocketCommunicator) -> None:
 User = get_user_model()
 
 
+@override_settings(
+    CHANNEL_LAYERS={
+        'default': {
+            'BACKEND': 'channels.layers.InMemoryChannelLayer',
+        }
+    }
+)
 class ConsumerTests(TransactionTestCase):
     """Tests for WebSocket consumers."""
 
     def setUp(self):
+        cache.clear()
         self.user = User.objects.create_user(username='user1', password='Tester123.', email='user1@example.com')
         self.other = User.objects.create_user(username='user2', password='Tester123.', email='user2@example.com')
         self.server = Server.objects.create(name='Server', owner=self.other)
@@ -365,6 +384,94 @@ class ConsumerTests(TransactionTestCase):
 
         connected = asyncio.run(run())
         self.assertFalse(connected)
+
+    def test_banned_member_connection_rejected(self):
+        ServerMember.objects.get_or_create(server=self.server, user=self.user)
+        ServerBan.objects.create(server=self.server, user=self.user, banned_by=self.other)
+        transaction.commit()
+
+        headers = self._get_cookie_header(self.user)
+        communicator = WebsocketCommunicator(
+            self.application,
+            f'/ws/chat/{self.server.slug}/',
+            headers=headers,
+        )
+
+        async def run():
+            connected, _ = await communicator.connect()
+            return connected
+
+        connected = asyncio.run(run())
+        self.assertFalse(connected)
+
+    def test_muted_member_chat_message_dropped(self):
+        membership = ServerMember.objects.create(server=self.server, user=self.user)
+        ServerMember.objects.get_or_create(server=self.server, user=self.other)
+        membership.muted_until = timezone.now() + timedelta(minutes=5)
+        membership.save(update_fields=['muted_until'])
+        transaction.commit()
+
+        headers1 = self._get_cookie_header(self.user)
+        headers2 = self._get_cookie_header(self.other)
+        comm1 = WebsocketCommunicator(self.application, f'/ws/chat/{self.server.slug}/', headers=headers1)
+        comm2 = WebsocketCommunicator(self.application, f'/ws/chat/{self.server.slug}/', headers=headers2)
+
+        async def run():
+            connected1, _ = await comm1.connect()
+            connected2, _ = await comm2.connect()
+            self.assertTrue(connected1)
+            self.assertTrue(connected2)
+
+            await drain_until(comm1, 'history')
+            await drain_until(comm2, 'history')
+
+            await comm1.send_json_to({'type': 'chat_message', 'content': 'muted hello'})
+
+            with self.assertRaises(asyncio.TimeoutError):
+                await comm2.receive_from(timeout=0.3)
+
+            await safe_disconnect(comm1)
+            await safe_disconnect(comm2)
+
+        asyncio.run(run())
+        self.assertFalse(
+            ChatMessage.objects.filter(server=self.server, user=self.user, content='muted hello').exists()
+        )
+
+    def test_server_chat_history_and_live_payload_include_mentions(self):
+        ServerMember.objects.get_or_create(server=self.server, user=self.user)
+        ServerMember.objects.get_or_create(server=self.server, user=self.other)
+
+        msg = ChatMessage.objects.create(server=self.server, user=self.other, content='hello @user1')
+        ChatMention.objects.create(message=msg, mentioned_user=self.user)
+        transaction.commit()
+
+        headers1 = self._get_cookie_header(self.user)
+        headers2 = self._get_cookie_header(self.other)
+        comm1 = WebsocketCommunicator(self.application, f'/ws/chat/{self.server.slug}/', headers=headers1)
+        comm2 = WebsocketCommunicator(self.application, f'/ws/chat/{self.server.slug}/', headers=headers2)
+
+        async def run():
+            connected1, _ = await comm1.connect()
+            connected2, _ = await comm2.connect()
+            self.assertTrue(connected1)
+            self.assertTrue(connected2)
+
+            history1 = await drain_until(comm1, 'history')
+            await drain_until(comm2, 'history')
+
+            history_msg = next(item for item in history1['messages'] if item['id'] == msg.id)
+            self.assertEqual(history_msg.get('mentions'), ['user1'])
+
+            await comm2.send_json_to({'type': 'chat_message', 'content': 'hi @user1'})
+
+            live_msg = await drain_until(comm1, 'chat_message')
+            self.assertEqual(live_msg.get('mentions'), ['user1'])
+
+            await safe_disconnect(comm1)
+            await safe_disconnect(comm2)
+
+        asyncio.run(run())
 
     # ------------------------------------------------------------------
     # edit_message tests

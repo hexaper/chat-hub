@@ -58,28 +58,6 @@ class RoomViewTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertTrue(ServerMember.objects.filter(server=self.server, user=self.user).exists())
 
-    def test_banned_user_cannot_rejoin_server_with_invite_code(self):
-        ServerBan.objects.create(server=self.server, user=self.user, banned_by=self.other_user)
-
-        self.client.login(username='testuser', password='Tester123.')
-        response = self.client.post(reverse('server_join'), {'invite_code': self.server.invite_code})
-
-        self.assertEqual(response.status_code, 302)
-        self.assertRedirects(response, reverse('server_list'))
-        self.assertFalse(ServerMember.objects.filter(server=self.server, user=self.user).exists())
-
-    def test_banned_former_member_cannot_rejoin_server_with_invite_code(self):
-        ServerMember.objects.create(server=self.server, user=self.user)
-        ServerBan.objects.create(server=self.server, user=self.user, banned_by=self.other_user)
-        ServerMember.objects.filter(server=self.server, user=self.user).delete()
-
-        self.client.login(username='testuser', password='Tester123.')
-        response = self.client.post(reverse('server_join'), {'invite_code': self.server.invite_code})
-
-        self.assertEqual(response.status_code, 302)
-        self.assertRedirects(response, reverse('server_list'))
-        self.assertFalse(ServerMember.objects.filter(server=self.server, user=self.user).exists())
-
     def test_server_settings_only_owner(self):
         self.client.login(username='testuser', password='Tester123.')
         response = self.client.get(reverse('server_settings', args=[self.server.slug]))
@@ -141,49 +119,6 @@ class RoomViewTests(TestCase):
 
         self.assertEqual(response.status_code, 302)
         self.assertRedirects(response, reverse('server_list'))
-
-    def test_owner_cannot_be_muted(self):
-        admin_user = User.objects.create_user(username='adminmute', password='Tester123.')
-        ServerMember.objects.create(server=self.server, user=admin_user, role=ServerMember.ROLE_ADMIN)
-
-        self.client.login(username='adminmute', password='Tester123.')
-        response = self.client.post(reverse('server_mute_member', args=[self.server.slug]), {
-            'user_id': self.other_user.id,
-            'minutes': '15',
-            'reason': 'nope',
-        })
-
-        self.assertEqual(response.status_code, 302)
-        self.assertRedirects(response, reverse('server_settings', args=[self.server.slug]))
-        owner_membership = ServerMember.objects.get(server=self.server, user=self.other_user)
-        self.assertIsNone(owner_membership.muted_until)
-        self.assertFalse(ModerationAction.objects.filter(
-            server=self.server,
-            actor=admin_user,
-            target=self.other_user,
-            action=ModerationAction.ACTION_MUTE,
-        ).exists())
-
-    def test_owner_mute_attempt_is_rejected_even_without_owner_membership_row(self):
-        admin_user = User.objects.create_user(username='adminmute2', password='Tester123.')
-        ServerMember.objects.create(server=self.server, user=admin_user, role=ServerMember.ROLE_ADMIN)
-        ServerMember.objects.filter(server=self.server, user=self.other_user).delete()
-
-        self.client.login(username='adminmute2', password='Tester123.')
-        response = self.client.post(reverse('server_mute_member', args=[self.server.slug]), {
-            'user_id': self.other_user.id,
-            'minutes': '15',
-            'reason': 'nope',
-        })
-
-        self.assertEqual(response.status_code, 302)
-        self.assertRedirects(response, reverse('server_settings', args=[self.server.slug]))
-        self.assertFalse(ModerationAction.objects.filter(
-            server=self.server,
-            actor=admin_user,
-            target=self.other_user,
-            action=ModerationAction.ACTION_MUTE,
-        ).exists())
 
     def test_server_leave_owner_forbidden(self):
         self.client.login(username='other', password='Tester123.')

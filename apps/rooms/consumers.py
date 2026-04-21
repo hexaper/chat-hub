@@ -6,7 +6,16 @@ from asgiref.sync import sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
 from channels.db import database_sync_to_async
 from utils.ratelimit import is_rate_limited
-from .models import Room, RoomParticipant, Server, ServerMember, ChatMessage, RoomChatMessage
+from .models import (
+    Room,
+    RoomParticipant,
+    Server,
+    ServerMember,
+    ServerBan,
+    ChatMessage,
+    RoomChatMessage,
+    ChatMention,
+)
 
 EDIT_WINDOW_SECONDS = 15 * 60  # 15 minutes
 
@@ -14,38 +23,18 @@ EDIT_WINDOW_SECONDS = 15 * 60  # 15 minutes
 # Maps server_slug -> {channel_name: username}
 # asyncio.Lock is safe here: all AsyncWebsocketConsumers share one event loop.
 _presence: dict[str, dict[str, str]] = {}
-# Lock is created lazily, keyed by the event loop it belongs to.
-# This prevents "bound to a different event loop" errors when tests call
-# asyncio.run() multiple times (each call creates a fresh event loop).
-_presence_locks: dict[int, asyncio.Lock] = {}
-
-
-def _get_presence_lock() -> asyncio.Lock:
-    """Return the presence lock for the current event loop, creating it if needed."""
-    loop = asyncio.get_running_loop()
-    loop_id = id(loop)
-    if loop_id not in _presence_locks:
-        _presence_locks[loop_id] = asyncio.Lock()
-        # Schedule cleanup when the loop closes so we don't leak indefinitely.
-        loop.call_soon(lambda: _presence_locks.pop(loop_id, None) if loop.is_closed() else None)
-    return _presence_locks[loop_id]
-
-
 async def _presence_add(server_slug: str, channel_name: str, username: str) -> list[str]:
-    async with _get_presence_lock():
-        _presence.setdefault(server_slug, {})[channel_name] = username
-        return list(set(_presence[server_slug].values()))
+    _presence.setdefault(server_slug, {})[channel_name] = username
+    return list(set(_presence[server_slug].values()))
 
 
 async def _presence_remove(server_slug: str, channel_name: str) -> list[str]:
-    async with _get_presence_lock():
-        _presence.get(server_slug, {}).pop(channel_name, None)
-        return list(set(_presence.get(server_slug, {}).values()))
+    _presence.get(server_slug, {}).pop(channel_name, None)
+    return list(set(_presence.get(server_slug, {}).values()))
 
 
 async def _presence_list(server_slug: str) -> list[str]:
-    async with _get_presence_lock():
-        return list(set(_presence.get(server_slug, {}).values()))
+    return list(set(_presence.get(server_slug, {}).values()))
 
 
 class ServerChatConsumer(AsyncWebsocketConsumer):
@@ -111,6 +100,8 @@ class ServerChatConsumer(AsyncWebsocketConsumer):
                 return
             if await sync_to_async(is_rate_limited)('chat', self.user.pk, '30/m'):
                 return
+            if await self.is_muted():
+                return
             msg = await self.save_message(content)
             await self.channel_layer.group_send(self.chat_group, {
                 'type': 'chat_message',
@@ -120,6 +111,7 @@ class ServerChatConsumer(AsyncWebsocketConsumer):
                 'content': msg['content'],
                 'image_url': '',
                 'video_url': '',
+                'mentions': msg.get('mentions', []),
                 'created_at': msg['created_at'],
             })
 
@@ -137,6 +129,7 @@ class ServerChatConsumer(AsyncWebsocketConsumer):
                     'content': msg['content'],
                     'image_url': msg['image_url'],
                     'video_url': msg['video_url'],
+                    'mentions': msg.get('mentions', []),
                     'created_at': msg['created_at'],
                 })
 
@@ -191,6 +184,7 @@ class ServerChatConsumer(AsyncWebsocketConsumer):
             'content': event['content'],
             'image_url': event.get('image_url', ''),
             'video_url': event.get('video_url', ''),
+            'mentions': event.get('mentions', []),
             'created_at': event['created_at'],
         }))
 
@@ -227,14 +221,30 @@ class ServerChatConsumer(AsyncWebsocketConsumer):
 
     @database_sync_to_async
     def is_member(self):
-        try:
-            membership = ServerMember.objects.select_related('server').get(
-                server__slug=self.server_slug, user=self.user
-            )
-            self.server_id = membership.server_id
-            return True
-        except ServerMember.DoesNotExist:
+        if ServerBan.objects.filter(
+            server__slug=self.server_slug,
+            user=self.user,
+            lifted_at__isnull=True,
+        ).exists():
             return False
+        membership = ServerMember.objects.select_related('server').filter(
+            server__slug=self.server_slug,
+            user=self.user,
+        ).first()
+        if not membership:
+            return False
+        self.server_id = membership.server_id
+        self.membership_id = membership.id
+        return True
+
+    @database_sync_to_async
+    def is_muted(self):
+        from django.utils import timezone
+        return ServerMember.objects.filter(
+            id=self.membership_id,
+            muted_until__isnull=False,
+            muted_until__gt=timezone.now(),
+        ).exists()
 
     @staticmethod
     def _avatar_url(user):
@@ -260,6 +270,7 @@ class ServerChatConsumer(AsyncWebsocketConsumer):
                 'created_at': m.created_at.isoformat(),
                 'updated_at': m.updated_at.isoformat() if m.updated_at else None,
                 'deleted_at': m.deleted_at.isoformat() if m.deleted_at else None,
+                'mentions': self._mention_usernames(m),
             })
         return result
 
@@ -278,6 +289,7 @@ class ServerChatConsumer(AsyncWebsocketConsumer):
             'content': msg.content,
             'image_url': msg.image.url if msg.image else '',
             'video_url': msg.video.url if msg.video else '',
+            'mentions': self._mention_usernames(msg),
             'created_at': msg.created_at.isoformat(),
         }
 
@@ -286,13 +298,41 @@ class ServerChatConsumer(AsyncWebsocketConsumer):
         msg = ChatMessage.objects.create(
             server_id=self.server_id, user=self.user, content=content[:2000]
         )
+        self._save_mentions(msg)
         return {
             'id': msg.id,
             'username': self.user.username,
             'avatar_url': self._avatar_url(self.user),
             'content': msg.content,
+            'mentions': self._mention_usernames(msg),
             'created_at': msg.created_at.isoformat(),
         }
+
+    @staticmethod
+    def _extract_mentions(content):
+        import re
+        return set(re.findall(r'@([A-Za-z0-9_]{1,150})', content or ''))
+
+    def _save_mentions(self, message):
+        usernames = self._extract_mentions(message.content)
+        if not usernames:
+            return
+        user_ids = ServerMember.objects.filter(
+            server_id=message.server_id,
+            user__username__in=usernames,
+        ).values_list('user_id', flat=True)
+        ChatMention.objects.bulk_create(
+            [ChatMention(message=message, mentioned_user_id=user_id) for user_id in user_ids],
+            ignore_conflicts=True,
+        )
+
+    @staticmethod
+    def _mention_usernames(message):
+        return list(
+            message.mentions.select_related('mentioned_user').values_list(
+                'mentioned_user__username', flat=True
+            )
+        )
 
     @database_sync_to_async
     def do_edit_message(self, message_id, new_content):
@@ -353,6 +393,7 @@ class ServerChatConsumer(AsyncWebsocketConsumer):
                 'created_at': m.created_at.isoformat(),
                 'updated_at': m.updated_at.isoformat() if m.updated_at else None,
                 'deleted_at': m.deleted_at.isoformat() if m.deleted_at else None,
+                'mentions': self._mention_usernames(m),
             })
         return {'messages': result, 'has_more': len(msgs_list) == 50}
 

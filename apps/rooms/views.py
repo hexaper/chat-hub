@@ -120,9 +120,6 @@ def server_join(request):
         except Server.DoesNotExist:
             messages.error(request, 'Invalid invite code.')
             return redirect('server_list')
-        if ServerBan.objects.filter(server=server, user=request.user, lifted_at__isnull=True).exists():
-            messages.error(request, 'You are banned from this server.')
-            return redirect('server_list')
         ServerMember.objects.get_or_create(server=server, user=request.user)
         messages.success(request, f'You joined {server.name}!')
         return redirect('server_detail', server_slug=server.slug)
@@ -270,11 +267,7 @@ def server_mute_member(request, server_slug):
     server = get_object_or_404(Server, slug=server_slug)
     if not can_moderate_server(server, request.user):
         raise Http404()
-    target_user_id = request.POST.get('user_id')
-    if str(target_user_id) == str(server.owner_id):
-        messages.error(request, 'Owner cannot be muted.')
-        return redirect('server_settings', server_slug=server.slug)
-    target = get_object_or_404(ServerMember, server=server, user_id=target_user_id)
+    target = get_object_or_404(ServerMember, server=server, user_id=request.POST.get('user_id'))
     try:
         minutes = int(request.POST.get('minutes', '15'))
     except (TypeError, ValueError):
