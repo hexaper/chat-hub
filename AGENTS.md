@@ -1,51 +1,66 @@
 # AGENTS.md
 
-**Stack**
-- Django 5.2 + Channels + Daphne + Redis. There is no npm/build step; frontend behavior is server-rendered templates plus vanilla JS.
-- HTTP entrypoint: `config/urls.py`. ASGI entrypoint: `config/asgi.py`. WebSocket routes: `apps/rooms/routing.py`.
-- Non-obvious split: `static/js/webrtc.js` handles room WebRTC/signaling only. Server chat and room chat client logic lives inline in `templates/rooms/server_detail.html` and `templates/rooms/room_detail.html`.
+Use this file for repo-wide rules only. When working inside a subdirectory, load the closest `AGENTS.md` first.
 
-**Local Run**
-- `manage.py` defaults to `config.settings.development`.
-- `config/asgi.py` defaults to `config.settings.production`; for any local Daphne run, set `DJANGO_SETTINGS_MODULE=config.settings.development` first.
-- `python manage.py runserver --settings=config.settings.development` is HTTP-only. Any chat/video/WebSocket work must be verified with Daphne:
+## Repo Snapshot
+
+- Stack: Django 5.2, Channels, Daphne, Redis, PostgreSQL/SQLite, server-rendered templates, vanilla JS.
+- HTTP entrypoint: `config/urls.py`.
+- ASGI entrypoint: `config/asgi.py`.
+- WebSocket routes: `apps/rooms/routing.py`.
+- WebRTC signaling lives in `static/js/webrtc.js`; chat client behavior stays inline in `templates/rooms/*.html`.
+
+## Fast Commands
+
 ```bash
 source venv/bin/activate
+python manage.py runserver --settings=config.settings.development
 DJANGO_SETTINGS_MODULE=config.settings.development daphne -b 0.0.0.0 -p 8000 config.asgi:application
-```
-- For local HTTPS/WebRTC testing, use:
-```bash
-DJANGO_SETTINGS_MODULE=config.settings.development daphne -e ssl:8443:privateKey=ssl.key:certKey=ssl.crt config.asgi:application
-```
-- `./deploy.sh` bootstraps `venv`, Redis, migrations, and seeds `test1` / `test2` with password `Tester123.`, but it finishes on `runserver`, so it does not exercise WebSockets.
-
-**Services And Deploy**
-- Redis is required for WebSockets, rate limiting, and `/healthz/`. Channel layer uses Redis DB 0; cache/rate limits use DB 1.
-- `docker-compose.yml` is the production/external-services path: it expects `.env` plus external Postgres, Redis, and S3.
-- `allinone/docker-compose.yml` bundles PostgreSQL 16 + Redis and serves HTTPS with a self-signed cert on `https://localhost:8000`.
-
-**Tests And Verification**
-- Use Django's test runner, not pytest.
-- Full suite:
-```bash
-source venv/bin/activate
 python manage.py test --settings=config.settings.development --keepdb
+python manage.py check --settings=config.settings.development
 ```
-- Focused runs:
-```bash
-python manage.py test apps.rooms.tests.test_consumers.ConsumerTests --settings=config.settings.development
-python manage.py test apps.rooms.tests.test_consumers.ConsumerTests.test_server_chat_accepts_member_and_sends_history --settings=config.settings.development
-```
-- Do not use `--parallel`; this repo hits a Python 3.13 pickle error.
-- There is no repo lint/typecheck/pre-commit config to mirror; practical verification is focused Django tests plus manual WebSocket/UI checks for the path you changed.
-- Consumer tests need Redis and use `TransactionTestCase`; existing tests often call `transaction.commit()` before `WebsocketCommunicator.connect()` so setup data is visible to the consumer thread.
 
-**Repo-Specific Constraints**
-- Keep dependencies lean: no new pip dependencies unless there is a strong, verified need.
-- Optimize assistant output for low token usage: use short, informative sentences; report only key actions/results instead of step-by-step narration.
-- When touching Channels code, use `database_sync_to_async` for ORM work. `sync_to_async` is for non-ORM sync helpers like `is_rate_limited()`.
-- Presence is an in-process `_presence` dict in `apps/rooms/consumers.py`; it resets on restart and only powers server chat online state.
-- Chat messages are soft-deleted via `deleted_at` and editable for 15 minutes; preserve that DB/WebSocket contract when changing chat behavior.
-- Static files are served by `staticfiles_urlpatterns()` in development and WhiteNoise manifest storage in non-debug modes. Do not add `ASGIStaticFilesHandler`; it breaks hashed static files in production/all-in-one.
-- Trust code/config over prose if they disagree; migrations currently go through `0013` in `apps/rooms/migrations/`.
+## Global Rules
+
+- Use Django's test runner, not pytest, and never use `--parallel` here.
+- Redis is required for WebSockets, rate limits, and `/healthz/`.
+- Use `database_sync_to_async` for ORM work in async consumers.
+- Preserve websocket sender self-exclusion and chat soft-delete/edit-window behavior unless the task explicitly changes them.
+- Keep dependencies lean and do not add a frontend build step.
+- Trust code/config over prose if they disagree.
 - Do not use git-worktrees from superpowers.
+
+## Token Efficiency
+
+- Return only important, decision-relevant information.
+- Prefer links and file paths over repeated prose.
+- Load only the context needed for the current task.
+
+## Tool and Read Optimization
+
+- Minimize tool calls while preserving correctness.
+- Prefer targeted reads/searches over broad scans.
+- Batch independent reads when useful; avoid duplicate exploration.
+
+## AGENTS.md Maintenance
+
+- Keep AGENTS files concise, accurate, and scoped.
+- Update the nearest relevant `AGENTS.md` when behavior, commands, constraints, or ownership changes.
+- Remove stale instructions promptly.
+
+## Scope Precedence
+
+- Nearest `AGENTS.md` wins over broader guidance.
+- Direct user instructions and code truth override AGENTS prose.
+
+## Module Map
+
+- `config/AGENTS.md`: settings, URLs, ASGI/WSGI, runtime entrypoints.
+- `apps/accounts/AGENTS.md`: auth models, forms, views, URLs, tests.
+- `apps/rooms/AGENTS.md`: chat/server/room models, views, consumers, routing, tests.
+- `apps/devices/AGENTS.md`: device registration app.
+- `templates/AGENTS.md`: server-rendered UI and inline page scripts.
+- `static/AGENTS.md`: shared browser assets, especially `js/webrtc.js`.
+- `utils/AGENTS.md`: shared helpers.
+- `docs/AGENTS.md`: roadmap, codebase docs, specs, plans.
+- `allinone/AGENTS.md`: bundled local self-host deployment path.

@@ -10,6 +10,49 @@ Real-time server/room communication app built with Django, Channels, Redis, and 
 - Frontend: server-rendered templates + vanilla JS (no npm/build pipeline)
 - Media path: WebRTC peer-to-peer (server is signaling only)
 
+## Repository Tree
+
+```text
+chat-hub/
+├── AGENTS.md
+├── CLAUDE.md
+├── README.md
+├── manage.py
+├── requirements.txt
+├── deploy.sh
+├── docker-compose.yml
+├── allinone/
+│   ├── docker-compose.yml
+│   ├── Dockerfile
+│   └── entrypoint.sh
+├── config/
+│   ├── AGENTS.md
+│   ├── asgi.py
+│   ├── urls.py
+│   └── settings/
+├── apps/
+│   ├── accounts/
+│   │   └── AGENTS.md
+│   ├── devices/
+│   │   └── AGENTS.md
+│   └── rooms/
+│       └── AGENTS.md
+├── templates/
+│   └── AGENTS.md
+├── static/
+│   ├── AGENTS.md
+│   └── js/webrtc.js
+├── utils/
+│   └── AGENTS.md
+└── docs/
+    ├── AGENTS.md
+    ├── codebase/
+    ├── ROADMAP.md
+    └── superpowers/
+        ├── specs/
+        └── plans/
+```
+
 ## Current Features
 
 - Public/private servers with invite-based joins
@@ -19,6 +62,7 @@ Real-time server/room communication app built with Django, Channels, Redis, and 
   - message edit window (15 minutes)
   - soft delete (`deleted_at`)
   - typing indicators
+  - image + video media messages (video types: mp4/webm/ogg, 25MB cap)
 - Trust/core UX features:
   - server roles (`admin`/`member`, with server owner implicit)
   - moderation records (`ServerBan`, `ModerationAction`)
@@ -27,6 +71,18 @@ Real-time server/room communication app built with Django, Channels, Redis, and 
   - read-state tracking (`ChatReadState`, `RoomChatReadState`)
   - server chat search and unread summary endpoints
 - Health endpoint: `GET /healthz/` (DB + Redis check)
+
+## Recent Additions
+
+- Performance updates from superpowers specs are now implemented:
+  - composite indexes for chat history and active room lookup (`chat_server_created_idx`, `roomchat_room_created_idx`, `room_server_active_idx`)
+  - PostgreSQL connection reuse in prod/all-in-one (`CONN_MAX_AGE=600`)
+- Server chat now supports video upload + inline playback with `video_url` in websocket history/live payloads.
+- Agent context routing was split into module-local `AGENTS.md` files (`config/`, `apps/*`, `templates/`, `static/`, `utils/`, `docs/`) to reduce navigation overhead.
+- `docs/superpowers/` now includes current specs/plans for:
+  - MVP-first scale-ready roadmap
+  - performance/scale/video-chat updates
+  - AGENTS.md context routing
 
 ## Quick Start (Local)
 
