@@ -96,3 +96,27 @@ class IntegrationTests(TestCase):
         self.assertEqual(response.status_code, 302)
 
         self.assertTrue(ServerMember.objects.filter(server=server, user=user_b).exists())
+
+    def test_server_detail_renders_search_input_and_unread_badge(self):
+        owner = User.objects.create_user(username='owner2', password='Tester123.')
+        server = Server.objects.create(name='Signals', owner=owner)
+        ServerMember.objects.create(server=server, user=owner)
+        ServerMember.objects.create(server=server, user=self.user)
+
+        self.client.login(username='testuser', password='Tester123.')
+        response = self.client.get(reverse('server_detail', args=[server.slug]))
+
+        self.assertContains(response, 'id="chatSearchInput"')
+        self.assertContains(response, 'id="serverUnreadBadge"')
+
+    def test_room_detail_renders_mention_highlight_hook(self):
+        owner = User.objects.create_user(username='owner3', password='Tester123.')
+        server = Server.objects.create(name='Mentions', owner=owner)
+        ServerMember.objects.create(server=server, user=owner)
+        ServerMember.objects.create(server=server, user=self.user)
+        room = Room.objects.create(name='General', server=server, host=owner)
+
+        self.client.login(username='testuser', password='Tester123.')
+        response = self.client.get(reverse('room_detail', args=[server.slug, room.slug]))
+
+        self.assertContains(response, 'chat-mention')

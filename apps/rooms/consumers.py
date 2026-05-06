@@ -1,6 +1,7 @@
 import asyncio
 import json
 import time
+import weakref
 from datetime import timedelta
 from asgiref.sync import sync_to_async
 from channels.generic.websocket import AsyncWebsocketConsumer
@@ -23,18 +24,36 @@ EDIT_WINDOW_SECONDS = 15 * 60  # 15 minutes
 # Maps server_slug -> {channel_name: username}
 # asyncio.Lock is safe here: all AsyncWebsocketConsumers share one event loop.
 _presence: dict[str, dict[str, str]] = {}
+
+# Keep one lock per event loop. Tests may create multiple loops via asyncio.run(),
+# and a lock created in one loop cannot be awaited in another.
+_presence_locks: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+
+
+def _get_presence_lock() -> asyncio.Lock:
+    loop = asyncio.get_running_loop()
+    lock = _presence_locks.get(loop)
+    if lock is None:
+        lock = asyncio.Lock()
+        _presence_locks[loop] = lock
+    return lock
+
+
 async def _presence_add(server_slug: str, channel_name: str, username: str) -> list[str]:
-    _presence.setdefault(server_slug, {})[channel_name] = username
-    return list(set(_presence[server_slug].values()))
+    async with _get_presence_lock():
+        _presence.setdefault(server_slug, {})[channel_name] = username
+        return list(set(_presence[server_slug].values()))
 
 
 async def _presence_remove(server_slug: str, channel_name: str) -> list[str]:
-    _presence.get(server_slug, {}).pop(channel_name, None)
-    return list(set(_presence.get(server_slug, {}).values()))
+    async with _get_presence_lock():
+        _presence.get(server_slug, {}).pop(channel_name, None)
+        return list(set(_presence.get(server_slug, {}).values()))
 
 
 async def _presence_list(server_slug: str) -> list[str]:
-    return list(set(_presence.get(server_slug, {}).values()))
+    async with _get_presence_lock():
+        return list(set(_presence.get(server_slug, {}).values()))
 
 
 class ServerChatConsumer(AsyncWebsocketConsumer):

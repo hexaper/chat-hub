@@ -202,7 +202,11 @@
         if (msg.deleted_at) {
             return `<div class="chat-msg-content fst-italic" style="color:var(--text-muted)">Message deleted</div>`;
         }
-        return `<div class="chat-msg-content">${escapeHtml(msg.content)}${msg.updated_at ? ' <small style="color:var(--text-muted)">(edited)</small>' : ''}</div>`;
+        return `<div class="chat-msg-content">${renderMentions(msg.content)}${msg.updated_at ? ' <small style="color:var(--text-muted)">(edited)</small>' : ''}</div>`;
+    }
+
+    function renderMentions(content) {
+        return escapeHtml(content || '').replace(/(^|\s)@([A-Za-z0-9_]{1,150})/g, '$1<span class="chat-mention">@$2</span>');
     }
 
     function buildMessageEl(msg) {
