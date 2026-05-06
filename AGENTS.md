@@ -47,5 +47,5 @@ python manage.py test apps.rooms.tests.test_consumers.ConsumerTests.test_server_
 - Presence is an in-process `_presence` dict in `apps/rooms/consumers.py`; it resets on restart and only powers server chat online state.
 - Chat messages are soft-deleted via `deleted_at` and editable for 15 minutes; preserve that DB/WebSocket contract when changing chat behavior.
 - Static files are served by `staticfiles_urlpatterns()` in development and WhiteNoise manifest storage in non-debug modes. Do not add `ASGIStaticFilesHandler`; it breaks hashed static files in production/all-in-one.
-- Trust code/config over prose if they disagree; at least one prose note is stale (`apps/rooms` migrations now go through `0012`, not `0010`).
-- Do not use git-wortrees from superpowers
+- Trust code/config over prose if they disagree; migrations currently go through `0013` in `apps/rooms/migrations/`.
+- Do not use git-worktrees from superpowers.
