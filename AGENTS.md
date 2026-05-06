@@ -48,3 +48,4 @@ python manage.py test apps.rooms.tests.test_consumers.ConsumerTests.test_server_
 - Chat messages are soft-deleted via `deleted_at` and editable for 15 minutes; preserve that DB/WebSocket contract when changing chat behavior.
 - Static files are served by `staticfiles_urlpatterns()` in development and WhiteNoise manifest storage in non-debug modes. Do not add `ASGIStaticFilesHandler`; it breaks hashed static files in production/all-in-one.
 - Trust code/config over prose if they disagree; at least one prose note is stale (`apps/rooms` migrations now go through `0012`, not `0010`).
+- Do not use git-wortrees from superpowers

@@ -79,6 +79,10 @@
     <!-- Chat column -->
     <div class="col-lg-5">
         <h5 class="mb-3" style="color:var(--text-secondary)"><i class="bi bi-chat-dots me-1"></i>Chat</h5>
+        <div class="d-flex gap-2 align-items-center mb-2">
+            <input id="chatSearchInput" class="form-control form-control-sm" placeholder="Search chat...">
+            <span id="serverUnreadBadge" class="badge bg-danger d-none">0</span>
+        </div>
         {% csrf_token %}
         <div id="onlineBar" class="d-flex flex-wrap align-items-center gap-2 mb-2" style="min-height:26px"></div>
         <div class="card">
@@ -211,9 +215,13 @@
                     `</video>`;
         }
         if (msg.content) {
-            html += `<div class="chat-msg-content">${escapeHtml(msg.content)}${msg.updated_at ? ' <small style="color:var(--text-muted)">(edited)</small>' : ''}</div>`;
+            html += `<div class="chat-msg-content">${renderMentions(msg.content)}${msg.updated_at ? ' <small style="color:var(--text-muted)">(edited)</small>' : ''}</div>`;
         }
         return html;
+    }
+
+    function renderMentions(content) {
+        return escapeHtml(content).replace(/(^|\s)@([A-Za-z0-9_]{1,150})/g, '$1<span class="chat-mention">@$2</span>');
     }
 
     function prependMessages(msgs) {

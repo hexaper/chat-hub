@@ -8,17 +8,27 @@ from django.contrib.auth import get_user_model
 from django.contrib.auth.decorators import login_required
 from django.contrib import messages
 from django.db.models import Count, Prefetch
-from django.http import Http404
 from django.http import JsonResponse
+from django.http import Http404
 from django.shortcuts import render, get_object_or_404, redirect
 from django.utils import timezone
 from django.views.decorators.http import require_POST as require_post_method
 from PIL import Image
 
 from utils.ratelimit import ratelimit
-from .models import Server, ServerMember, ServerBan, ModerationAction, Room, RoomParticipant, ChatMessage
-from .permissions import can_manage_server_settings, can_moderate_server
+from .models import (
+    Server,
+    ServerMember,
+    ServerBan,
+    ModerationAction,
+    ChatReadState,
+    Room,
+    RoomParticipant,
+    ChatMessage,
+    ChatMention,
+)
 from .forms import ServerForm, ServerSettingsForm, RoomForm, RoomPasswordForm
+from .permissions import can_manage_server_settings, can_moderate_server
 
 User = get_user_model()
 
@@ -120,6 +130,9 @@ def server_join(request):
         except Server.DoesNotExist:
             messages.error(request, 'Invalid invite code.')
             return redirect('server_list')
+        if ServerBan.objects.filter(server=server, user=request.user, lifted_at__isnull=True).exists():
+            messages.error(request, 'You are banned from this server.')
+            return redirect('server_list')
         ServerMember.objects.get_or_create(server=server, user=request.user)
         messages.success(request, f'You joined {server.name}!')
         return redirect('server_detail', server_slug=server.slug)
@@ -157,10 +170,9 @@ def server_settings(request, server_slug):
 @login_required
 @require_post_method
 def server_kick_member(request, server_slug):
-    if _is_admin(request.user):
-        server = get_object_or_404(Server, slug=server_slug)
-    else:
-        server = get_object_or_404(Server, slug=server_slug, owner=request.user)
+    server = get_object_or_404(Server, slug=server_slug)
+    if not can_moderate_server(server, request.user):
+        raise Http404()
     user_id = request.POST.get('user_id')
     if str(user_id) == str(server.owner_id):
         messages.error(request, "You can't remove yourself as owner.")
@@ -176,10 +188,9 @@ def server_kick_member(request, server_slug):
 @login_required
 @require_post_method
 def server_regenerate_invite(request, server_slug):
-    if _is_admin(request.user):
-        server = get_object_or_404(Server, slug=server_slug)
-    else:
-        server = get_object_or_404(Server, slug=server_slug, owner=request.user)
+    server = get_object_or_404(Server, slug=server_slug)
+    if not can_moderate_server(server, request.user):
+        raise Http404()
     server.regenerate_invite_code()
     messages.success(request, 'Invite code regenerated.')
     return redirect('server_settings', server_slug=server.slug)
@@ -267,7 +278,11 @@ def server_mute_member(request, server_slug):
     server = get_object_or_404(Server, slug=server_slug)
     if not can_moderate_server(server, request.user):
         raise Http404()
-    target = get_object_or_404(ServerMember, server=server, user_id=request.POST.get('user_id'))
+    target_user_id = request.POST.get('user_id')
+    if str(target_user_id) == str(server.owner_id):
+        messages.error(request, 'Owner cannot be muted.')
+        return redirect('server_settings', server_slug=server.slug)
+    target = get_object_or_404(ServerMember, server=server, user_id=target_user_id)
     try:
         minutes = int(request.POST.get('minutes', '15'))
     except (TypeError, ValueError):
@@ -284,6 +299,63 @@ def server_mute_member(request, server_slug):
     )
     messages.success(request, 'Member muted.')
     return redirect('server_settings', server_slug=server.slug)
+
+
+@login_required
+@require_post_method
+def server_mark_read(request, server_slug):
+    server = get_object_or_404(Server, slug=server_slug)
+    if not ServerMember.objects.filter(server=server, user=request.user).exists():
+        raise Http404()
+    message = get_object_or_404(ChatMessage, server=server, id=request.POST.get('message_id'))
+    ChatReadState.objects.update_or_create(
+        server=server,
+        user=request.user,
+        defaults={'last_read_message': message},
+    )
+    return JsonResponse({'ok': True})
+
+
+@login_required
+def server_chat_search(request, server_slug):
+    server = get_object_or_404(Server, slug=server_slug)
+    if not ServerMember.objects.filter(server=server, user=request.user).exists():
+        raise Http404()
+    q = (request.GET.get('q') or '').strip()
+    qs = ChatMessage.objects.filter(
+        server=server,
+        deleted_at__isnull=True,
+    ).select_related('user').order_by('-created_at')
+    if q:
+        from django.db.models import Q
+        qs = qs.filter(Q(content__icontains=q) | Q(user__username__icontains=q))
+    qs = qs[:50]
+    return JsonResponse({
+        'results': [
+            {
+                'id': m.id,
+                'username': m.user.username,
+                'content': m.content,
+                'created_at': m.created_at.isoformat(),
+            }
+            for m in qs
+        ]
+    })
+
+
+@login_required
+def chat_unread_summary(request, server_slug):
+    server = get_object_or_404(Server, slug=server_slug)
+    if not ServerMember.objects.filter(server=server, user=request.user).exists():
+        raise Http404()
+    state = ChatReadState.objects.filter(server=server, user=request.user).first()
+    last_id = state.last_read_message_id if state else 0
+    unread = ChatMessage.objects.filter(
+        server=server,
+        deleted_at__isnull=True,
+        id__gt=last_id,
+    ).exclude(user=request.user).count()
+    return JsonResponse({'server_unread': unread})
 
 
 # ── Room views ────────────────────────────────────────────────────────────────

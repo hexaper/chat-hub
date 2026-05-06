@@ -23,6 +23,9 @@ urlpatterns = [
     path('servers/<uuid:server_slug>/rooms/<uuid:slug>/leave/', views.room_leave, name='room_leave'),
     path('servers/<uuid:server_slug>/rooms/<uuid:slug>/delete/', views.room_delete, name='room_delete'),
     path('servers/<uuid:server_slug>/chat/upload/', views.chat_image_upload, name='chat_image_upload'),
+    path('servers/<uuid:server_slug>/chat/search/', views.server_chat_search, name='server_chat_search'),
+    path('servers/<uuid:server_slug>/chat/mark-read/', views.server_mark_read, name='server_mark_read'),
+    path('servers/<uuid:server_slug>/chat/unread-summary/', views.chat_unread_summary, name='chat_unread_summary'),
 
     # Admin panel
     path('admin-panel/', views.admin_panel, name='admin_panel'),
